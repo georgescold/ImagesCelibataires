@@ -259,7 +259,7 @@ const echappe = t => String(t ?? '').replace(/[&<>"]/g, c =>
 function vue(f, n){
   const txt = (f.textes && f.textes[n-1]) || '';
   return `<div class="vue">
-    <img src="/vignette/${f.nom}/${n}.jpg" alt="Photo ${n} de ${echappe(f.prenom)}" loading="lazy">
+    <img src="/vignette/${f.nom}/${n}.jpg" alt="Photo ${n} de ${echappe(f.prenom)}">
     <div class="legende">${echappe(txt)}</div>
     <div class="vue-actions">
       <a class="bouton telecharge minuscule" href="/dl/${f.nom}/${n}.jpg" download>Télécharger</a>
