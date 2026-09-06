@@ -216,9 +216,10 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 
 /* ---- tablette en portrait et en dessous ---- */
 @media (max-width: 860px){
-  .entete{gap:10px}
-  .entete h1{font-size:18px}
-  .entete .note{font-size:14px; width:100%; order:3}
+  .entete{gap:6px 10px; flex-wrap:wrap}
+  .entete h1{font-size:18px; order:1}
+  .entete #sortir{order:2; margin-left:auto}
+  .entete .note{font-size:14px; width:100%; order:3; margin-top:-2px}
   .tete-panneau{flex-direction:column; align-items:flex-start; gap:4px; margin-bottom:14px}
   .barre{gap:10px}
   .barre input[type="search"]{width:100%; order:3}
