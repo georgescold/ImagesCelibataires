@@ -155,6 +155,13 @@ class H(BaseHTTPRequestHandler):
             return self._json({"femmes": dossiers(arch), "personas": PERSONAS,
                                "nb_actives": len(dossiers()), "nb_archivees": len(dossiers(True))})
 
+        if chemin == "/api/solde":
+            try:
+                import runner
+                return self._json({"solde": runner.balance()})
+            except Exception as e:
+                return self._json({"erreur": str(e)[:120]}, 502)
+
         if chemin.startswith("/api/job/"):
             j = JOBS.get(chemin.rsplit("/", 1)[1])
             return self._json(j or {"etat": "inconnu"})

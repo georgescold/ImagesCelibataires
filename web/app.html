@@ -62,6 +62,15 @@ p{margin:0}
 }
 .entete h1{font-size:20px; font-weight:800}
 .entete .note{font-size:15px; color:var(--doux)}
+.solde{
+  font-size:15px; font-weight:700; font-variant-numeric:tabular-nums;
+  color:var(--accent-clair); background:var(--rose-voile);
+  border:1px solid var(--accent-sourd); border-radius:999px;
+  padding:3px 12px; white-space:nowrap;
+}
+.solde.bas{color:#ffc9a0; background:rgba(229,161,60,.14); border-color:#6b4c1a}
+.solde.vide{color:var(--erreur); background:rgba(255,138,118,.14); border-color:#7a3128}
+.solde.hs{color:var(--doux); background:none; border-color:var(--bord)}
 
 main{
   max-width:1680px; margin:0 auto;
@@ -279,6 +288,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 
 <header class="entete">
   <h1>Atelier carrousels</h1>
+  <span class="solde" id="solde" title="Crédit fal restant">…</span>
   <span class="note" id="compte"></span>
   <button class="bouton minuscule" id="sortir" style="margin-left:auto">Se déconnecter</button>
 </header>
@@ -386,6 +396,23 @@ function rendre(){
     : (l.length > vus.length ? `${vus.length} affichées sur ${l.length}` : '');
 }
 
+async function solde(){
+  const e = $('#solde');
+  try{
+    const r = await fetch('/api/solde');
+    if(r.status === 401) return;
+    const d = await r.json();
+    if(typeof d.solde !== 'number'){ e.textContent = '— $'; e.className = 'solde hs'; return; }
+    e.textContent = d.solde.toFixed(2).replace('.', ',') + ' $';
+    // ~0,21 $ le carrousel : en dessous de 1 $ il en reste moins de cinq
+    e.className = 'solde' + (d.solde < 0.25 ? ' vide' : d.solde < 1 ? ' bas' : '');
+    e.title = `Crédit fal restant — environ ${Math.floor(d.solde / 0.21)} carrousels`;
+  }catch(err){
+    e.textContent = '— $'; e.className = 'solde hs';
+  }
+}
+setInterval(solde, 60000);
+
 async function charger(){
   const r = await fetch('/api/librairie' + (vueArchives ? '?archives=1' : ''));
   if(r.status === 401){ location.reload(); return; }
@@ -473,16 +500,13 @@ $('#go').addEventListener('click', async () => {
       if(j.etat === 'erreur') $('#erreur').textContent = j.erreur;
       $('#nom').value = '';
       charger();
+      solde();
     }
   }, 1500);
 });
 
-$('#sortir').onclick = async () => {
-  await fetch('/api/sortir', {method:'POST'});
-  location.reload();
-};
-
 charger();
+solde();
 </script>
 </body>
 </html>
