@@ -69,6 +69,27 @@ def ecrire_objet(cible, donnees, ctype="image/jpeg"):
     return c in (200, 201)
 
 
+def urls_signees(cibles, secondes=7200):
+    """Signe plusieurs chemins en UN appel.
+
+    Les signer un par un demandait 165 requetes enchainees pour 33 carrousels,
+    soit 24 secondes de bibliotheque. Supabase accepte une liste.
+    """
+    if not cibles:
+        return {}
+    c, d = sb(f"/storage/v1/object/sign/{BUCKET}", "POST",
+              {"expiresIn": secondes, "paths": list(cibles)})
+    if c != 200 or not isinstance(d, list):
+        return {}
+    out = {}
+    for item in d:
+        chemin = (item.get("path") or "").lstrip("/")
+        signee = item.get("signedURL") or item.get("signedUrl")
+        if chemin and signee:
+            out[chemin] = BASE + "/storage/v1" + signee
+    return out
+
+
 def url_signee(cible, secondes=3600):
     c, d = sb(f"/storage/v1/object/sign/{BUCKET}/{cible}", "POST",
               {"expiresIn": secondes})

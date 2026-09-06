@@ -27,11 +27,15 @@ class handler(BaseHTTPRequestHandler):
                 for p in ph:
                     photos.setdefault(p["carrousel"], []).append(p)
 
+        # une seule signature pour toutes les vignettes de la page
+        chemins = [f"{n}/vignettes/{p['numero']}.jpg"
+                   for n in noms for p in photos.get(n, [])]
+        signees = L.urls_signees(chemins)
+
         for f in fiches:
             f["photos"] = [str(p["numero"]) + ".jpg" for p in photos.get(f["nom"], [])]
-            # Pas d'URL signees ici : il en faudrait une par photo, soit 165 appels
-            # a Supabase enchaines, ce qui mettait la bibliotheque a 24 secondes.
-            # L'interface passe par /api/media, qui sert l'image directement.
+            f["vignettes"] = {str(p["numero"]): signees.get(f"{f['nom']}/vignettes/{p['numero']}.jpg")
+                              for p in photos.get(f["nom"], [])}
             f["archivee"] = statut == "archive"
 
         c3, tous = L.rest("carrousels?select=statut")

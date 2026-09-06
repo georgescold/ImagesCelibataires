@@ -22,7 +22,7 @@ CIBLE = os.path.join(RACINE, "web", "app.html")
 # ne suit plus : on echoue bruyamment plutot que de livrer du HTML casse.
 REGLES = [
     (r'src="/vignette/\$\{f\.nom\}/\$\{n\}\.jpg"',
-     'src="/api/media?nom=${f.nom}&n=${n}"',
+     'src="${(f.vignettes && f.vignettes[n]) || `/api/media?nom=${f.nom}&n=${n}`}"',
      "vignettes"),
     (r'href="/dl/\$\{f\.nom\}/\$\{n\}\.jpg" download',
      'href="/api/media?nom=${f.nom}&n=${n}&plein=1" download',
