@@ -2,6 +2,8 @@
 """Sert l'atelier si la session est ouverte, la page de connexion sinon."""
 import os
 from http.server import BaseHTTPRequestHandler
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 import _lib as L
 
 RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

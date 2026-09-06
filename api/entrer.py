@@ -2,6 +2,8 @@
 """Ouverture de session : un mot de passe unique, un cookie signe."""
 import hmac, time
 from http.server import BaseHTTPRequestHandler
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 import _lib as L
 
 ATTENTE = {}      # adresse -> instant du prochain essai autorise

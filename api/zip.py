@@ -3,6 +3,8 @@
 import io, zipfile
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 import _lib as L
 
 

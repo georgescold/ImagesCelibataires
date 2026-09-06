@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Fermeture de session."""
 from http.server import BaseHTTPRequestHandler
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 import _lib as L
 
 
