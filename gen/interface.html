@@ -39,7 +39,8 @@
 html{color-scheme:dark}
 
 body{
-  margin:0; min-height:100vh;
+  margin:0; min-height:100vh; overflow-x:hidden;
+  -webkit-text-size-adjust:100%;
   background:radial-gradient(1400px 700px at 50% -18%, #241b23 0%, var(--fond) 62%);
   color:var(--texte);
   font:16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
@@ -51,7 +52,9 @@ p{margin:0}
 /* ----------------------------------------------------------------- entete */
 .entete{
   display:flex; gap:20px; align-items:center; justify-content:space-between;
-  padding:14px 32px;
+  padding:14px clamp(14px, 4vw, 32px);
+  padding-left:max(clamp(14px, 4vw, 32px), env(safe-area-inset-left));
+  padding-right:max(clamp(14px, 4vw, 32px), env(safe-area-inset-right));
   border-bottom:1px solid var(--bord);
   background:rgba(14,12,17,.74);
   backdrop-filter:blur(8px);
@@ -60,15 +63,19 @@ p{margin:0}
 .entete h1{font-size:20px; font-weight:800}
 .entete .note{font-size:15px; color:var(--doux)}
 
-main{padding:26px 32px 60px; max-width:1680px; margin:0 auto}
+main{
+  max-width:1680px; margin:0 auto;
+  padding:clamp(16px, 3vw, 26px) clamp(14px, 4vw, 32px)
+          calc(60px + env(safe-area-inset-bottom));
+}
 
 /* --------------------------------------------------------------- panneaux */
 .panneau{
   background:var(--panneau);
   border:1px solid var(--bord);
   border-radius:var(--r-grand);
-  padding:24px 26px 26px;
-  margin-bottom:26px;
+  padding:clamp(16px, 3vw, 24px) clamp(16px, 3vw, 26px);
+  margin-bottom:clamp(16px, 3vw, 26px);
 }
 .tete-panneau{display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:18px}
 .tete-panneau h2{font-size:17px; font-weight:800}
@@ -161,7 +168,8 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 
 .femme{
   background:var(--panneau); border:1px solid var(--bord);
-  border-radius:var(--r-grand); padding:22px 24px; margin-bottom:22px;
+  border-radius:var(--r-grand); margin-bottom:clamp(14px, 2.5vw, 22px);
+  padding:clamp(16px, 3vw, 22px) clamp(14px, 3vw, 24px);
 }
 .femme-tete{display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px}
 .femme-tete .nom{font-size:19px; font-weight:800; margin-right:4px}
@@ -174,9 +182,9 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 .femme-tete .pousse{margin-left:auto}
 
 .pellicule{display:grid; grid-template-columns:repeat(5,1fr); gap:16px; align-items:stretch}
-@media(max-width:1280px){.pellicule{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:820px){.pellicule{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:560px){.pellicule{grid-template-columns:1fr}}
+@media(max-width:1400px){.pellicule{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:1100px){.pellicule{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:860px){.pellicule{grid-template-columns:repeat(2,1fr)}}
 
 .vue{display:grid; grid-template-rows:auto 1fr auto; gap:10px}
 .vue img{
@@ -192,6 +200,78 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 .vue-actions>*{flex:1}
 
 .vide{color:var(--doux); text-align:center; padding:56px 0; font-size:16px}
+
+/* ================================================================ mobile ==
+ *
+ * Trois adaptations, pas seulement des colonnes qui retrecissent.
+ *
+ * 1. La pellicule devient une bande qui defile horizontalement, calee photo
+ *    par photo. Empilee en colonne, un carrousel de 5 photos demanderait
+ *    cinq ecrans de defilement vertical pour etre vu en entier.
+ * 2. Les champs du formulaire passent en pleine largeur : a 110 px, le
+ *    champ d'age se retrouvait seul sur sa ligne, ce qui est pire.
+ * 3. Les zones tactiles montent a 44 px, la taille sous laquelle on rate
+ *    sa cible au doigt.
+ */
+
+/* ---- tablette en portrait et en dessous ---- */
+@media (max-width: 860px){
+  .entete{gap:10px}
+  .entete h1{font-size:18px}
+  .entete .note{font-size:14px; width:100%; order:3}
+  .tete-panneau{flex-direction:column; align-items:flex-start; gap:4px; margin-bottom:14px}
+  .barre{gap:10px}
+  .barre input[type="search"]{width:100%; order:3}
+  .femme-tete{gap:8px}
+  .femme-tete .pousse{margin-left:0}
+}
+
+/* ---- telephone ---- */
+@media (max-width: 640px){
+  /* le formulaire : chaque champ sur toute la largeur, bouton en pleine barre */
+  .rangee{gap:12px}
+  .champ, .champ.age, .champ.persona, .champ.nom, .champ.genre{width:100%}
+  .rangee > .bouton.primaire{width:100%}
+
+  /* la pellicule glisse au doigt, une photo a la fois */
+  .pellicule{
+    display:flex; grid-template-columns:none;
+    gap:12px; overflow-x:auto; scroll-snap-type:x mandatory;
+    /* les photos filent jusqu'aux bords de l'ecran, pas jusqu'au bord de la carte */
+    margin-inline:calc(-1 * clamp(14px, 3vw, 24px));
+    padding-inline:clamp(14px, 3vw, 24px);
+    padding-bottom:6px;
+    scrollbar-width:thin;
+  }
+  .vue{flex:0 0 78vw; max-width:340px; scroll-snap-align:center}
+
+  .femme-tete .nom{font-size:17px; width:100%; margin-right:0}
+  .puce{font-size:13px; padding:3px 10px}
+  .legende{font-size:15px; padding:10px 12px}
+  #journal{font-size:13px; max-height:150px}
+}
+
+/* ---- tres petits ecrans ---- */
+@media (max-width: 380px){
+  .vue{flex-basis:84vw}
+  .entete h1{font-size:17px}
+}
+
+/* ---- au doigt : cibles d'au moins 44 px ---- */
+@media (pointer: coarse){
+  .bouton{padding:13px 18px}
+  .bouton.minuscule{padding:11px 12px; font-size:15px}
+  .onglet{padding:11px 16px}
+  select, input[type="text"], input[type="number"], input[type="search"]{padding:13px}
+  /* deux boutons cote a cote deviennent illisibles sous 360 px de carte */
+  .vue-actions{flex-wrap:wrap}
+  .vue-actions > *{min-width:calc(50% - 4px)}
+}
+
+/* ---- ecran tres bas (telephone en paysage) ---- */
+@media (max-height: 480px) and (orientation: landscape){
+  .entete{position:static}
+}
 </style>
 </head>
 <body>
