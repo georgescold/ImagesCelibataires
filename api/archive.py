@@ -29,7 +29,6 @@ class handler(BaseHTTPRequestHandler):
                     z.writestr(f"{nom}/{i}.jpg", brut)
             textes = fiche.get("textes") or []
             z.writestr(f"{nom}/textes.txt",
-                       "
-".join(f"Photo {i+1} : {t}" for i, t in enumerate(textes)))
+                       chr(10).join(f"Photo {i+1} : {t}" for i, t in enumerate(textes)))
         L.repondre(self, 200, "application/zip", tampon.getvalue(),
                    {"Content-Disposition": f'attachment; filename="{nom}.zip"'})
