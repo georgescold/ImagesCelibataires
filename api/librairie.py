@@ -29,8 +29,9 @@ class handler(BaseHTTPRequestHandler):
 
         for f in fiches:
             f["photos"] = [str(p["numero"]) + ".jpg" for p in photos.get(f["nom"], [])]
-            f["vignettes"] = {p["numero"]: L.url_signee(f"{f['nom']}/vignettes/{p['numero']}.jpg")
-                              for p in photos.get(f["nom"], [])}
+            # Pas d'URL signees ici : il en faudrait une par photo, soit 165 appels
+            # a Supabase enchaines, ce qui mettait la bibliotheque a 24 secondes.
+            # L'interface passe par /api/media, qui sert l'image directement.
             f["archivee"] = statut == "archive"
 
         c3, tous = L.rest("carrousels?select=statut")
