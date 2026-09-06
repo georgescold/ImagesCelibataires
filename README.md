@@ -7,7 +7,17 @@ Interface web locale, génération via l'API [fal](https://fal.ai).
 
 ---
 
-## Lancer
+## Deux façons de l'utiliser
+
+**En ligne** — https://images-celibataires.vercel.app, protégé par mot de passe.
+Fonctions Vercel, photos et bibliothèque dans Supabase.
+
+**En local** — `start.bat`, tout sur la machine. `python gen/sauvegarde.py`
+envoie vers Supabase ce qui manque en ligne.
+
+---
+
+## Lancer en local
 
 Double-clic sur **`start.bat`**, ou :
 
@@ -76,6 +86,33 @@ Constats repris dans le générateur :
 
 ---
 
+## L'architecture en ligne
+
+Le serveur local est un processus persistant qui écrit sur le disque ;
+Vercel exécute des fonctions sans état sur un système de fichiers éphémère.
+Trois choses ont donc été déplacées :
+
+- les photos et les vignettes vont dans le bucket Supabase ;
+- la bibliothèque et l'état des générations vivent dans des tables ;
+- les registres de poses, lieux et prénoms sont téléchargés dans `/tmp`
+  avant chaque génération, puis renvoyés au stockage — sans quoi deux
+  générations successives rejoueraient les mêmes poses et les mêmes lieux.
+
+Le code de génération n'est pas dupliqué : on recrée dans `/tmp`
+l'arborescence qu'il attend et on le laisse travailler. Une génération prend
+environ 95 secondes, sous la limite de 300 s déclarée dans `vercel.json`.
+
+`web/app.html` est fabriqué depuis `gen/interface.html` par
+`python gen/faire_web.py`, qui échoue bruyamment si une règle de
+transformation ne s'applique plus. Une seule source pour les deux interfaces.
+
+Les vignettes sont servies directement par le CDN Supabase, avec des URL
+signées fabriquées **en un seul appel groupé**. Les signer une par une
+demandait 165 requêtes enchaînées, soit 24 secondes de bibliothèque ; les
+faire transiter par une fonction coûtait 8,5 secondes par image.
+
+---
+
 ## Structure
 
 | Fichier | Rôle |
@@ -93,6 +130,10 @@ Constats repris dans le générateur :
 | `gen/identite.py` | Prénoms, métiers et textes à incruster |
 | `gen/genre.py` | Conversion féminin → masculin des banques de textes |
 | `gen/pipeline.py` | Post-traitement « vraie photo de téléphone » |
+| `gen/sauvegarde.py` | Envoi des carrousels locaux vers Supabase |
+| `gen/faire_web.py` | Fabrique `web/app.html` depuis l'interface locale |
+| `api/*.py` | Fonctions Vercel : bibliothèque, génération, médias, session |
+| `web/*.html` | Interface en ligne et page de connexion |
 
 ---
 
@@ -124,3 +165,18 @@ et les adverbes. Vérifié sur les 119 textes de la banque.
 au-delà de 50 ans, et d'autant plus que les lumières des scènes tirées sont
 éloignées les unes des autres. La parade actuelle est de régénérer la photo
 fautive (0,045 $). Un contrôle automatique de ressemblance reste à faire.
+
+---
+
+## Variables d'environnement
+
+| Nom | Rôle |
+|---|---|
+| `FAL_KEY` | Clé fal, pour la génération |
+| `SUPABASE_URL` | URL du projet Supabase |
+| `SUPABASE_SERVICE_KEY` | Clé de service, accès au stockage et aux tables |
+| `ATELIER_MDP` | Mot de passe de l'interface en ligne |
+| `SESSION_SECRET` | Signature du cookie de session |
+
+En local elles se lisent depuis `.env` ; en ligne depuis les variables du
+projet Vercel. Le fichier `.env` n'est jamais versionné.
