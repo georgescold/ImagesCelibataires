@@ -280,7 +280,7 @@ function carte(f){
       <span class="puce">${echappe(f.persona || '—')}</span>
       <span class="puce">${echappe(f.nom)}</span>
       ${f.retro ? '<span class="puce reconstitue">texte reconstitué</span>' : ''}
-      <a class="bouton telecharge minuscule pousse" href="/api/zip?nom=${f.nom}">Tout télécharger</a>
+      <a class="bouton telecharge minuscule pousse" href="/api/archive?nom=${f.nom}">Tout télécharger</a>
       <button class="bouton archive minuscule" data-archive="${f.nom}">${f.archivee ? 'Restaurer' : 'Archiver'}</button>
       <button class="bouton supprime minuscule" data-supprime="${f.nom}" data-qui="${echappe(f.prenom || f.nom)}">Supprimer</button>
     </div>

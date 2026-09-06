@@ -28,7 +28,7 @@ REGLES = [
      'href="/api/media?nom=${f.nom}&n=${n}&plein=1" download',
      "telechargement d'une photo"),
     (r'href="/zip/\$\{f\.nom\}"',
-     'href="/api/zip?nom=${f.nom}"',
+     'href="/api/archive?nom=${f.nom}"',
      "telechargement du carrousel"),
     (r"fetch\('/api/job/' \+ job\)",
      "fetch('/api/job?id=' + job)",
