@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/generer.py": {
+      "maxDuration": 300,
+      "memory": 2048,
+      "includeFiles": "gen/**"
+    },
+    "api/index.py": {
+      "includeFiles": "web/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/", "destination": "/api/index" }
+  ]
+}

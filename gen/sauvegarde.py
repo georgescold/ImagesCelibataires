@@ -120,6 +120,11 @@ def sauvegarder(cibles=None, verbeux=True):
         ok_photos = True
         for i, ph in enumerate(meta["photos"], start=1):
             ok, cible, rep_h = envoyer_photo(nom, i, os.path.join(rep, ph))
+            # la vignette part aussi : sans elle, la librairie en ligne
+            # telechargerait les images pleine resolution
+            v = serveur.vignette(nom, ph)
+            if v:
+                envoyer_photo(nom, f"vignettes/{i}", v)
             if not ok:
                 ok_photos = False
                 if verbeux:
