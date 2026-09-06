@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atelier carrousels</title>
+<style>
+/*
+ * Sombre, dense, et surtout lisible.
+ * Corps de base a 16 px, jamais en dessous de 14 px, y compris pour les
+ * etiquettes : on regarde cet ecran longtemps, ce qu'on y lit doit se lire
+ * sans se pencher.
+ *
+ * Aucune dependance, aucun reseau : pas de CDN, pas de police distante.
+ */
+
+:root{
+  --fond:#0e0c11;
+  --panneau:#191722;
+  --panneau-2:#211e2c;
+  --panneau-3:#2a2637;
+  --bord:#332f3f;
+  --bord-vif:#463f55;
+  --texte:#f0ecf2;
+  --doux:#a9a2b4;
+  --accent:#e5385f;
+  --accent-clair:#ff6b8c;
+  --ok:#35c07a;
+  --attention:#e5a13c;
+  --erreur:#ff8a76;
+  --accent-sourd:#8f2740;
+  --rose-voile:rgba(229,56,95,.14);
+  --r:12px;
+  --r-grand:16px;
+}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{color-scheme:dark}
+
+body{
+  margin:0; min-height:100vh;
+  background:radial-gradient(1400px 700px at 50% -18%, #241b23 0%, var(--fond) 62%);
+  color:var(--texte);
+  font:16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2{margin:0;line-height:1.25;letter-spacing:-.01em}
+p{margin:0}
+
+/* ----------------------------------------------------------------- entete */
+.entete{
+  display:flex; gap:20px; align-items:center; justify-content:space-between;
+  padding:14px 32px;
+  border-bottom:1px solid var(--bord);
+  background:rgba(14,12,17,.74);
+  backdrop-filter:blur(8px);
+  position:sticky; top:0; z-index:20;
+}
+.entete h1{font-size:20px; font-weight:800}
+.entete .note{font-size:15px; color:var(--doux)}
+
+main{padding:26px 32px 60px; max-width:1680px; margin:0 auto}
+
+/* --------------------------------------------------------------- panneaux */
+.panneau{
+  background:var(--panneau);
+  border:1px solid var(--bord);
+  border-radius:var(--r-grand);
+  padding:24px 26px 26px;
+  margin-bottom:26px;
+}
+.tete-panneau{display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:18px}
+.tete-panneau h2{font-size:17px; font-weight:800}
+
+.etiquette{
+  display:block; font-size:14px; font-weight:700;
+  letter-spacing:.05em; text-transform:uppercase;
+  color:var(--doux); margin-bottom:8px;
+}
+
+.rangee{display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end}
+.champ{display:flex; flex-direction:column; min-width:0}
+.champ.age{width:110px}
+.champ.persona{width:260px}
+.champ.nom{width:230px}
+
+select,input[type="text"],input[type="number"],input[type="search"]{
+  width:100%;
+  background:var(--panneau-2); color:var(--texte);
+  border:1.5px solid var(--bord); border-radius:10px;
+  padding:11px 13px; font:inherit; font-size:16px;
+}
+select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
+  outline:2px solid var(--accent); outline-offset:2px; border-color:var(--accent);
+}
+
+/* --------------------------------------------------------------- boutons */
+.bouton{
+  font:inherit; font-size:16px; font-weight:700;
+  color:var(--texte); background:var(--panneau-2);
+  border:1.5px solid var(--bord); border-radius:10px;
+  padding:11px 18px; cursor:pointer;
+  transition:border-color .15s, background .15s, filter .15s;
+  text-decoration:none; display:inline-block; text-align:center;
+}
+.bouton:hover:not(:disabled){border-color:var(--bord-vif); background:var(--panneau-3)}
+.bouton:disabled{opacity:.45; cursor:not-allowed}
+.bouton.primaire{
+  background:linear-gradient(180deg,var(--accent-clair),var(--accent));
+  border-color:transparent; color:#2b060f;
+}
+.bouton.primaire:hover:not(:disabled){filter:brightness(1.08)}
+.bouton.telecharge{
+  background:var(--rose-voile);
+  border-color:var(--accent-sourd);
+  color:var(--accent-clair);
+}
+.bouton.telecharge:hover:not(:disabled){
+  background:rgba(229,56,95,.24);
+  border-color:var(--accent);
+  color:#ffd3dd;
+}
+.bouton.minuscule{padding:7px 12px; font-size:14px}
+
+@keyframes tourne{to{transform:rotate(360deg)}}
+.bouton.travaille{color:transparent; pointer-events:none; position:relative}
+.bouton.travaille::after{
+  content:''; position:absolute; inset:0; margin:auto;
+  width:16px; height:16px; border-radius:50%;
+  border:2px solid #2b060f; border-top-color:transparent;
+  animation:tourne 700ms linear infinite;
+}
+
+/* ------------------------------------------------------------- journal */
+#journal{
+  margin-top:18px; padding:14px 16px;
+  background:var(--panneau-2); border:1px solid var(--bord); border-radius:var(--r);
+  font:14px/1.75 ui-monospace,'Cascadia Mono',Consolas,monospace;
+  color:var(--doux); white-space:pre-wrap; max-height:210px; overflow:auto;
+}
+#erreur{margin-top:14px; color:var(--erreur); font-size:15px; white-space:pre-wrap}
+
+/* -------------------------------------------------------------- librairie */
+.barre{display:flex; gap:14px; align-items:center; margin-bottom:18px; flex-wrap:wrap}
+.onglets{display:flex; gap:8px; background:var(--panneau-2); border:1px solid var(--bord);
+ border-radius:12px; padding:4px}
+.onglet{
+  font:inherit; font-size:15px; font-weight:700; color:var(--doux);
+  background:none; border:0; border-radius:9px; padding:8px 16px; cursor:pointer;
+}
+.onglet.actif{background:var(--accent); color:#2b060f}
+.onglet:hover:not(.actif){color:var(--texte)}
+.bouton.archive{border-color:var(--bord); color:var(--doux)}
+.bouton.supprime{border-color:var(--bord); color:var(--doux)}
+.bouton.supprime:hover:not(:disabled){border-color:var(--erreur); color:var(--erreur)}
+.puce.genre{color:var(--accent-clair); border-color:var(--accent-sourd); background:var(--rose-voile)}
+.champ.genre{width:150px}
+.bouton.archive:hover:not(:disabled){border-color:var(--attention); color:var(--attention)}
+.barre input[type="search"]{width:280px}
+
+.femme{
+  background:var(--panneau); border:1px solid var(--bord);
+  border-radius:var(--r-grand); padding:22px 24px; margin-bottom:22px;
+}
+.femme-tete{display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px}
+.femme-tete .nom{font-size:19px; font-weight:800; margin-right:4px}
+.puce{
+  font-size:14px; color:var(--doux);
+  background:var(--panneau-2); border:1px solid var(--bord);
+  border-radius:999px; padding:4px 12px; white-space:nowrap;
+}
+.puce.reconstitue{color:var(--attention); border-color:#4a3c1c}
+.femme-tete .pousse{margin-left:auto}
+
+.pellicule{display:grid; grid-template-columns:repeat(5,1fr); gap:16px; align-items:stretch}
+@media(max-width:1280px){.pellicule{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:820px){.pellicule{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.pellicule{grid-template-columns:1fr}}
+
+.vue{display:grid; grid-template-rows:auto 1fr auto; gap:10px}
+.vue img{
+  width:100%; display:block; border-radius:var(--r);
+  aspect-ratio:4/5; object-fit:cover;
+  background:var(--panneau-2); border:1px solid var(--bord);
+}
+.legende{
+  background:var(--panneau-2); border:1px solid var(--bord); border-radius:10px;
+  padding:11px 13px; font-size:16px; color:var(--texte); display:flex; align-items:center;
+}
+.vue-actions{display:flex; gap:8px}
+.vue-actions>*{flex:1}
+
+.vide{color:var(--doux); text-align:center; padding:56px 0; font-size:16px}
+</style>
+</head>
+<body>
+
+<header class="entete">
+  <h1>Atelier carrousels</h1>
+  <span class="note" id="compte"></span>
+</header>
+
+<main>
+
+  <section class="panneau">
+    <div class="tete-panneau">
+      <h2>Nouveau profil</h2>
+      <span class="note" style="color:var(--doux);font-size:15px">environ 0,21 $ et 80 secondes</span>
+    </div>
+    <div class="rangee">
+      <div class="champ genre">
+        <label class="etiquette" for="genre">Profil</label>
+        <select id="genre">
+          <option value="f">Femme</option>
+          <option value="h">Homme</option>
+        </select>
+      </div>
+      <div class="champ age">
+        <label class="etiquette" for="age">Âge</label>
+        <input id="age" type="number" min="30" max="70" value="45">
+      </div>
+      <div class="champ persona">
+        <label class="etiquette" for="persona">Dominante colorimétrique</label>
+        <select id="persona"></select>
+      </div>
+      <div class="champ nom">
+        <label class="etiquette" for="nom">Dossier</label>
+        <input id="nom" type="text" placeholder="automatique">
+      </div>
+      <button class="bouton primaire" id="go">Générer le carrousel</button>
+    </div>
+    <div id="journal" hidden></div>
+    <div id="erreur"></div>
+  </section>
+
+  <div class="barre">
+    <div class="onglets">
+      <button class="onglet actif" id="ongActives">À poster</button>
+      <button class="onglet" id="ongArchives">Archivées</button>
+    </div>
+    <input type="search" id="filtre" placeholder="Filtrer par prénom, métier, âge…">
+    <span class="note" id="filtreNote" style="color:var(--doux);font-size:15px"></span>
+  </div>
+
+  <div id="librairie"><div class="vide">Chargement…</div></div>
+
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let FEMMES = [], enCours = false, vueArchives = false;
+const PAR_PAGE = 6;
+let affichees = PAR_PAGE;
+
+const echappe = t => String(t ?? '').replace(/[&<>"]/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function vue(f, n){
+  const txt = (f.textes && f.textes[n-1]) || '';
+  return `<div class="vue">
+    <img src="/vignette/${f.nom}/${n}.jpg" alt="Photo ${n} de ${echappe(f.prenom)}" loading="lazy">
+    <div class="legende">${echappe(txt)}</div>
+    <div class="vue-actions">
+      <a class="bouton telecharge minuscule" href="/dl/${f.nom}/${n}.jpg" download>Télécharger</a>
+      <button class="bouton minuscule" data-copie="${echappe(txt)}">Copier le texte</button>
+    </div>
+  </div>`;
+}
+
+function carte(f){
+  const vues = f.photos.map(p => vue(f, parseInt(p))).join('');
+  return `<article class="femme">
+    <div class="femme-tete">
+      <span class="nom">${echappe(f.prenom || f.nom)}, ${f.age} ans</span>
+      <span class="puce genre">${f.genre === 'h' ? 'Homme' : 'Femme'}</span>
+      <span class="puce">${echappe(f.metier || '—')}</span>
+      <span class="puce">${echappe(f.recherche || '—')}</span>
+      <span class="puce">${echappe(f.persona || '—')}</span>
+      <span class="puce">${echappe(f.nom)}</span>
+      ${f.retro ? '<span class="puce reconstitue">texte reconstitué</span>' : ''}
+      <a class="bouton telecharge minuscule pousse" href="/zip/${f.nom}">Tout télécharger</a>
+      <button class="bouton archive minuscule" data-archive="${f.nom}">${f.archivee ? 'Restaurer' : 'Archiver'}</button>
+      <button class="bouton supprime minuscule" data-supprime="${f.nom}" data-qui="${echappe(f.prenom || f.nom)}">Supprimer</button>
+    </div>
+    <div class="pellicule">${vues}</div>
+  </article>`;
+}
+
+function rendre(){
+  const q = $('#filtre').value.trim().toLowerCase();
+  const l = q ? FEMMES.filter(f =>
+    [f.prenom, f.metier, f.recherche, f.nom, String(f.age)].join(' ').toLowerCase().includes(q)) : FEMMES;
+  const vus = l.slice(0, affichees);
+  $('#librairie').innerHTML = vus.length
+    ? vus.map(carte).join('') + (l.length > vus.length
+        ? `<button class="bouton" id="plus" style="width:100%">Afficher les ${Math.min(PAR_PAGE, l.length - vus.length)} suivantes (${l.length - vus.length} restantes)</button>`
+        : '')
+    : `<div class="vide">${vueArchives ? 'Aucune femme archivée.' : 'Aucune femme à poster. Génère-en une ci-dessus.'}</div>`;
+  const b = $('#plus');
+  if(b) b.onclick = () => { affichees += PAR_PAGE; rendre(); };
+  $('#filtreNote').textContent = q
+    ? `${l.length} sur ${FEMMES.length}`
+    : (l.length > vus.length ? `${vus.length} affichées sur ${l.length}` : '');
+}
+
+async function charger(){
+  const d = await (await fetch('/api/librairie' + (vueArchives ? '?archives=1' : ''))).json();
+  FEMMES = d.femmes;
+  const sel = $('#persona');
+  if(!sel.options.length) d.personas.forEach(p => sel.add(new Option(p.replace(/_/g,' '), p)));
+  $('#compte').textContent = `${d.nb_actives} à poster · ${d.nb_archivees} archivée${d.nb_archivees > 1 ? 's' : ''}`;
+  $('#ongActives').textContent = `À poster (${d.nb_actives})`;
+  $('#ongArchives').textContent = `Archivées (${d.nb_archivees})`;
+  rendre();
+}
+
+function onglet(archives){
+  vueArchives = archives;
+  affichees = PAR_PAGE;
+  $('#ongActives').classList.toggle('actif', !archives);
+  $('#ongArchives').classList.toggle('actif', archives);
+  charger();
+}
+$('#ongActives').onclick = () => onglet(false);
+$('#ongArchives').onclick = () => onglet(true);
+
+$('#filtre').addEventListener('input', () => { affichees = PAR_PAGE; rendre(); });
+
+document.addEventListener('click', async e => {
+  const sup = e.target.closest('[data-supprime]');
+  if(sup){
+    if(!confirm(`Supprimer le carrousel de ${sup.dataset.qui} ?
+
+Les 5 photos partent dans gen/_corbeille, tu peux encore les récupérer à la main.`)) return;
+    sup.disabled = true;
+    const r = await fetch('/api/supprimer', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({nom: sup.dataset.supprime})
+    });
+    const d = await r.json();
+    if(d.erreur){ sup.disabled = false; $('#erreur').textContent = d.erreur; return; }
+    charger();
+    return;
+  }
+  const a = e.target.closest('[data-archive]');
+  if(a){
+    a.disabled = true;
+    const r = await fetch(vueArchives ? '/api/restaurer' : '/api/archiver', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({nom: a.dataset.archive})
+    });
+    const d = await r.json();
+    if(d.erreur){ a.disabled = false; $('#erreur').textContent = d.erreur; return; }
+    charger();
+    return;
+  }
+  const b = e.target.closest('[data-copie]');
+  if(!b) return;
+  navigator.clipboard.writeText(b.dataset.copie).then(() => {
+    const v = b.textContent; b.textContent = 'Copié';
+    setTimeout(() => b.textContent = v, 1200);
+  });
+});
+
+$('#go').addEventListener('click', async () => {
+  if(enCours) return;
+  enCours = true;
+  const go = $('#go');
+  go.classList.add('travaille'); go.disabled = true;
+  $('#erreur').textContent = '';
+  $('#journal').hidden = false;
+  $('#journal').textContent = 'Démarrage…';
+
+  const r = await fetch('/api/generer', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({age:+$('#age').value, persona:$('#persona').value, nom:$('#nom').value, genre:$('#genre').value})
+  });
+  const {job} = await r.json();
+
+  const t = setInterval(async () => {
+    const j = await (await fetch('/api/job/' + job)).json();
+    $('#journal').textContent = (j.lignes || []).join('\n') || 'Génération en cours…';
+    $('#journal').scrollTop = 1e6;
+    if(j.etat === 'fini' || j.etat === 'erreur'){
+      clearInterval(t);
+      enCours = false;
+      go.classList.remove('travaille'); go.disabled = false;
+      if(j.etat === 'erreur') $('#erreur').textContent = j.erreur;
+      $('#nom').value = '';
+      charger();
+    }
+  }, 1500);
+});
+
+charger();
+</script>
+</body>
+</html>

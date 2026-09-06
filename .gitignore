@@ -1,0 +1,29 @@
+# --- secrets ---------------------------------------------------------------
+.env
+
+# --- photos scrapees du compte source --------------------------------------
+# analyse/ contient 65 photos de personnes reelles recuperees sur TikTok,
+# plus les planches contact fabriquees a partir d'elles. Ces images ne
+# m'appartiennent pas et representent des personnes identifiables : elles
+# n'ont rien a faire dans un depot public.
+analyse/
+
+# --- carrousels generes ----------------------------------------------------
+# On ignore tout ce qui se trouve dans gen/, puis on re-autorise le code.
+# Les images pesent 123 Mo, le code 177 Ko.
+gen/*
+!gen/*.py
+!gen/*.html
+!gen/*.bat
+
+# registres d'etat (prenoms, poses et lieux deja utilises)
+gen/_*.json
+
+# --- divers ----------------------------------------------------------------
+__pycache__/
+*.pyc
+*.jpg
+*.jpeg
+*.png
+Thumbs.db
+desktop.ini
