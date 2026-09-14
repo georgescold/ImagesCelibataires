@@ -1,0 +1,387 @@
+{
+ "_genere": "FICHIER GÉNÉRÉ par Compaatible (scripts/exporter-cartes-atelier.mjs). Ne pas éditer : toute correction serait effacée à la prochaine exportation.",
+ "traits": [
+  {
+   "cle": "O",
+   "libelle": "Ouverture d'esprit",
+   "poleHaut": "Curieux",
+   "poleBas": "Concret"
+  },
+  {
+   "cle": "C",
+   "libelle": "Conscienciosité",
+   "poleHaut": "Organisé",
+   "poleBas": "Spontané"
+  },
+  {
+   "cle": "E",
+   "libelle": "Extraversion",
+   "poleHaut": "Sociable",
+   "poleBas": "Discret"
+  },
+  {
+   "cle": "A",
+   "libelle": "Coopération",
+   "poleHaut": "Chaleureux",
+   "poleBas": "Direct"
+  },
+  {
+   "cle": "N",
+   "libelle": "Sensibilité",
+   "poleHaut": "Intense",
+   "poleBas": "Serein"
+  }
+ ],
+ "familles": {
+  "architectes": {
+   "id": "architectes",
+   "nom": "Les Architectes du Cœur",
+   "couleur": "#7B5EA7",
+   "fond": "#F5F0F9",
+   "echelleLogo": 1.28
+  },
+  "ames": {
+   "id": "ames",
+   "nom": "Les Âmes Lumineuses",
+   "couleur": "#5E8A72",
+   "fond": "#F2F7F4",
+   "echelleLogo": 1
+  },
+  "gardiens": {
+   "id": "gardiens",
+   "nom": "Les Gardiens du Lien",
+   "couleur": "#4A857E",
+   "fond": "#F0F6F5",
+   "echelleLogo": 1
+  },
+  "flammes": {
+   "id": "flammes",
+   "nom": "Les Flammes Libres",
+   "couleur": "#B8783D",
+   "fond": "#FAF4ED",
+   "echelleLogo": 1
+  }
+ },
+ "types": [
+  {
+   "id": "stratege-serein",
+   "code": "IASS",
+   "nom": "Le Stratège Serein",
+   "famille": "architectes",
+   "bigFive": {
+    "O": "high",
+    "C": "high",
+    "E": "low",
+    "A": "low",
+    "N": "low"
+   },
+   "segments": {
+    "O": 4,
+    "C": 4,
+    "E": 2,
+    "A": 2,
+    "N": 2
+   }
+  },
+  {
+   "id": "sculpteur-passionne",
+   "code": "IASI",
+   "nom": "Le Sculpteur Passionné",
+   "famille": "architectes",
+   "bigFive": {
+    "O": "high",
+    "C": "high",
+    "E": "low",
+    "A": "low",
+    "N": "high"
+   },
+   "segments": {
+    "O": 4,
+    "C": 4,
+    "E": 2,
+    "A": 2,
+    "N": 4
+   }
+  },
+  {
+   "id": "commandant-bienveillant",
+   "code": "EASS",
+   "nom": "Le Commandant Bienveillant",
+   "famille": "architectes",
+   "bigFive": {
+    "O": "low",
+    "C": "high",
+    "E": "high",
+    "A": "low",
+    "N": "low"
+   },
+   "segments": {
+    "O": 2,
+    "C": 4,
+    "E": 4,
+    "A": 2,
+    "N": 2
+   }
+  },
+  {
+   "id": "etoile-magnetique",
+   "code": "EASI",
+   "nom": "L'Étoile Magnétique",
+   "famille": "architectes",
+   "bigFive": {
+    "O": "high",
+    "C": "high",
+    "E": "high",
+    "A": "low",
+    "N": "high"
+   },
+   "segments": {
+    "O": 4,
+    "C": 4,
+    "E": 4,
+    "A": 2,
+    "N": 4
+   }
+  },
+  {
+   "id": "sage-bienveillant",
+   "code": "ICLS",
+   "nom": "Le Sage Bienveillant",
+   "famille": "ames",
+   "bigFive": {
+    "O": "high",
+    "C": "low",
+    "E": "low",
+    "A": "high",
+    "N": "low"
+   },
+   "segments": {
+    "O": 4,
+    "C": 2,
+    "E": 2,
+    "A": 4,
+    "N": 2
+   }
+  },
+  {
+   "id": "reveur-romantique",
+   "code": "ICLI",
+   "nom": "Le Rêveur Romantique",
+   "famille": "ames",
+   "bigFive": {
+    "O": "high",
+    "C": "low",
+    "E": "low",
+    "A": "high",
+    "N": "high"
+   },
+   "segments": {
+    "O": 4,
+    "C": 2,
+    "E": 2,
+    "A": 4,
+    "N": 4
+   }
+  },
+  {
+   "id": "mentor-solaire",
+   "code": "ECLS",
+   "nom": "Le Mentor Solaire",
+   "famille": "ames",
+   "bigFive": {
+    "O": "high",
+    "C": "low",
+    "E": "high",
+    "A": "high",
+    "N": "low"
+   },
+   "segments": {
+    "O": 4,
+    "C": 2,
+    "E": 4,
+    "A": 4,
+    "N": 2
+   }
+  },
+  {
+   "id": "papillon-empathique",
+   "code": "ECLI",
+   "nom": "Le Papillon Empathique",
+   "famille": "ames",
+   "bigFive": {
+    "O": "high",
+    "C": "low",
+    "E": "high",
+    "A": "high",
+    "N": "high"
+   },
+   "segments": {
+    "O": 4,
+    "C": 2,
+    "E": 4,
+    "A": 4,
+    "N": 4
+   }
+  },
+  {
+   "id": "protecteur-fidele",
+   "code": "ICSS",
+   "nom": "Le Protecteur Fidèle",
+   "famille": "gardiens",
+   "bigFive": {
+    "O": "low",
+    "C": "high",
+    "E": "low",
+    "A": "high",
+    "N": "low"
+   },
+   "segments": {
+    "O": 2,
+    "C": 4,
+    "E": 2,
+    "A": 4,
+    "N": 2
+   }
+  },
+  {
+   "id": "guerisseur-tendre",
+   "code": "ICSI",
+   "nom": "Le Guérisseur Tendre",
+   "famille": "gardiens",
+   "bigFive": {
+    "O": "low",
+    "C": "high",
+    "E": "low",
+    "A": "high",
+    "N": "high"
+   },
+   "segments": {
+    "O": 2,
+    "C": 4,
+    "E": 2,
+    "A": 4,
+    "N": 4
+   }
+  },
+  {
+   "id": "pilier-rayonnant",
+   "code": "ECSS",
+   "nom": "Le Pilier Rayonnant",
+   "famille": "gardiens",
+   "bigFive": {
+    "O": "low",
+    "C": "high",
+    "E": "high",
+    "A": "high",
+    "N": "low"
+   },
+   "segments": {
+    "O": 2,
+    "C": 4,
+    "E": 4,
+    "A": 4,
+    "N": 2
+   }
+  },
+  {
+   "id": "coeur-volcanique",
+   "code": "ECSI",
+   "nom": "Le Cœur Volcanique",
+   "famille": "gardiens",
+   "bigFive": {
+    "O": "low",
+    "C": "high",
+    "E": "high",
+    "A": "high",
+    "N": "high"
+   },
+   "segments": {
+    "O": 2,
+    "C": 4,
+    "E": 4,
+    "A": 4,
+    "N": 4
+   }
+  },
+  {
+   "id": "artisan-du-moment",
+   "code": "IALS",
+   "nom": "L'Artisan du Moment",
+   "famille": "flammes",
+   "bigFive": {
+    "O": "low",
+    "C": "low",
+    "E": "low",
+    "A": "low",
+    "N": "low"
+   },
+   "segments": {
+    "O": 2,
+    "C": 2,
+    "E": 2,
+    "A": 2,
+    "N": 2
+   }
+  },
+  {
+   "id": "artiste-spontane",
+   "code": "IALI",
+   "nom": "L'Artiste Spontané",
+   "famille": "flammes",
+   "bigFive": {
+    "O": "high",
+    "C": "low",
+    "E": "low",
+    "A": "low",
+    "N": "high"
+   },
+   "segments": {
+    "O": 4,
+    "C": 2,
+    "E": 2,
+    "A": 2,
+    "N": 4
+   }
+  },
+  {
+   "id": "aventurier-audacieux",
+   "code": "EALS",
+   "nom": "L'Aventurier Audacieux",
+   "famille": "flammes",
+   "bigFive": {
+    "O": "low",
+    "C": "low",
+    "E": "high",
+    "A": "low",
+    "N": "low"
+   },
+   "segments": {
+    "O": 2,
+    "C": 2,
+    "E": 4,
+    "A": 2,
+    "N": 2
+   }
+  },
+  {
+   "id": "comete-flamboyante",
+   "code": "EALI",
+   "nom": "La Comète Flamboyante",
+   "famille": "flammes",
+   "bigFive": {
+    "O": "high",
+    "C": "low",
+    "E": "high",
+    "A": "low",
+    "N": "high"
+   },
+   "segments": {
+    "O": 4,
+    "C": 2,
+    "E": 4,
+    "A": 2,
+    "N": 4
+   }
+  }
+ ]
+}

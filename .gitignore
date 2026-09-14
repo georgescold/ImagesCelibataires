@@ -25,5 +25,8 @@ __pycache__/
 *.jpg
 *.jpeg
 *.png
+# ...sauf les avatars et blasons exportes par Compaatible : la carte de
+# personnalite en a besoin, en local comme en ligne.
+!cartes/**/*.png
 Thumbs.db
 desktop.ini
