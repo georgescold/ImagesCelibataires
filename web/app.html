@@ -415,16 +415,29 @@ async function solde(){
 setInterval(solde, 60000);
 
 async function charger(){
-  const r = await fetch('/api/librairie' + (vueArchives ? '?archives=1' : ''));
-  if(r.status === 401){ location.reload(); return; }
-  const d = await r.json();
-  FEMMES = d.femmes;
-  const sel = $('#persona');
-  if(!sel.options.length) d.personas.forEach(p => sel.add(new Option(p.replace(/_/g,' '), p)));
-  $('#compte').textContent = `${d.nb_actives} à poster · ${d.nb_archivees} archivée${d.nb_archivees > 1 ? 's' : ''}`;
-  $('#ongActives').textContent = `À poster (${d.nb_actives})`;
-  $('#ongArchives').textContent = `Archivées (${d.nb_archivees})`;
-  rendre();
+  try{
+    const r = await fetch('/api/librairie' + (vueArchives ? '?archives=1' : ''));
+    if(r.status === 401){ location.reload(); return; }
+    // la reponse n'est pas toujours du JSON : une fonction qui plante renvoie du HTML
+    const brut = await r.text();
+    let d = {};
+    try{ d = JSON.parse(brut); }catch(e){}
+    if(!r.ok || !Array.isArray(d.femmes)) throw new Error(d.erreur || `${r.status} ${brut.slice(0, 120)}`);
+    FEMMES = d.femmes;
+    const sel = $('#persona');
+    if(!sel.options.length) d.personas.forEach(p => sel.add(new Option(p.replace(/_/g,' '), p)));
+    $('#compte').textContent = `${d.nb_actives} à poster · ${d.nb_archivees} archivée${d.nb_archivees > 1 ? 's' : ''}`;
+    $('#ongActives').textContent = `À poster (${d.nb_actives})`;
+    $('#ongArchives').textContent = `Archivées (${d.nb_archivees})`;
+    rendre();
+  }catch(err){
+    // sans ce garde-fou, la moindre panne laissait « Chargement… » a l'ecran
+    // indefiniment, sans dire ce qui n'allait pas (base en pause, par exemple)
+    $('#librairie').innerHTML = `<div class="vide">Bibliothèque injoignable.
+      <div style="margin-top:8px;font-size:14px;opacity:.7">${echappe(String(err.message || err))}</div>
+      <button class="bouton" id="reessayer" style="margin-top:14px">Réessayer</button></div>`;
+    $('#reessayer').onclick = charger;
+  }
 }
 
 function onglet(archives){
