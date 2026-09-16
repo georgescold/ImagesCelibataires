@@ -26,8 +26,11 @@ PERSONAS = ["discrete_nature", "sportive_naturelle", "quarantenaire_filtres",
 
 # les registres d'etat vivaient dans des fichiers ; en ligne ils sont
 # dans le stockage, sinon ils disparaitraient a chaque invocation
+# `_variantes_cartes.json` suit la meme regle : sans lui, chaque invocation
+# repartirait d'un registre vide et retirerait les memes segments.
 REGISTRES = ["_poses_utilisees.json", "_lieux_utilises.json",
-             "_prenoms_utilises.json", "_prenoms_h_utilises.json"]
+             "_prenoms_utilises.json", "_prenoms_h_utilises.json",
+             "_variantes_cartes.json"]
 
 
 # ------------------------------------------------------------------ Supabase

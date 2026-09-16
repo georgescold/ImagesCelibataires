@@ -44,7 +44,6 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 ICI = os.path.dirname(os.path.abspath(__file__))
 CARTES = os.path.join(ICI, "..", "cartes")
 SORTIES = os.path.join(ICI, "_cartes")
-REGISTRE = os.path.join(ICI, "_variantes_cartes.json")
 VERROU = threading.Lock()   # le serveur local sert plusieurs requetes a la fois
 
 # --- Les statistiques tirees au hasard, mais fideles au type ---------------------
@@ -100,6 +99,16 @@ def texte_espace(draw, x, y, texte, fonte, couleur, interlettre):
         x += draw.textlength(ch, font=fonte) + interlettre
 
 
+def registre():
+    """Le fichier qui retient les variantes deja sorties.
+
+    Lu a chaque appel, jamais fige au chargement : en ligne le paquet deploye
+    est en lecture seule, et api/carte.py fait pointer CARTE_REGISTRE vers la
+    copie telechargee dans /tmp, y compris quand le module a deja ete importe
+    par une invocation precedente. En local, rien a definir."""
+    return os.environ.get("CARTE_REGISTRE") or os.path.join(ICI, "_variantes_cartes.json")
+
+
 def variantes(t, traits):
     """Toutes les combinaisons de segments possibles pour ce type, dans un ordre stable."""
     plages = [SEGMENTS_HAUT if t["bigFive"][tr["cle"]] == "high" else SEGMENTS_BAS for tr in traits]
@@ -115,16 +124,18 @@ def tirer_segments(t, traits, rnd=None):
     propre a chaque poste, comme les registres de prenoms, poses et lieux."""
     rnd = rnd or random.Random()
     toutes = variantes(t, traits)
+    chemin = registre()
     with VERROU:
-        registre = json.load(open(REGISTRE, encoding="utf-8")) if os.path.exists(REGISTRE) else {}
-        deja = set(registre.get(t["id"], [])) & set(toutes)
+        deja_vues = json.load(open(chemin, encoding="utf-8")) if os.path.exists(chemin) else {}
+        deja = set(deja_vues.get(t["id"], [])) & set(toutes)
         libres = [v for v in toutes if v not in deja]
         if not libres:                   # toutes sorties : nouveau cycle
             deja, libres = set(), toutes
         choix = rnd.choice(libres)
         deja.add(choix)
-        registre[t["id"]] = sorted(deja)
-        json.dump(registre, open(REGISTRE, "w", encoding="utf-8"), indent=0)
+        deja_vues[t["id"]] = sorted(deja)
+        os.makedirs(os.path.dirname(os.path.abspath(chemin)), exist_ok=True)
+        json.dump(deja_vues, open(chemin, "w", encoding="utf-8"), indent=0)
     segments = {tr["cle"]: int(ch) for tr, ch in zip(traits, choix)}
     return segments, len(deja), len(toutes)
 
