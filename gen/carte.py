@@ -19,8 +19,9 @@ se lit plus comme une illustration.
 --- D'ou viennent les donnees ---------------------------------------------------
 
 Tout vient du dossier `cartes/`, GENERE par Compaatible
-(`node scripts/exporter-cartes-atelier.mjs`) : les 16 types, les segments de
-chaque trait, les familles, les avatars et les polices. Rien n'est recopie ici.
+(`node scripts/exporter-cartes-atelier.mjs`) : les 16 types et leur signature
+haut/bas par trait, les familles, les avatars et les polices. Rien n'est
+recopie ici. Les segments, eux, sont tires a chaque carte (cf. SEGMENTS_HAUT).
 
 --- La carte est celle de l'app ------------------------------------------------
 
@@ -30,16 +31,37 @@ mesure, `apps/admin/src/components/studio/PersonalityCards.tsx`, replique
 fidele de `PersonalityFront` dans l'app : base 240 px, ratio 1,83, chaque
 dimension multipliee par le meme facteur `k`.
 """
+import itertools
 import json
 import os
+import random
 import re
 import sys
+import threading
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ICI = os.path.dirname(os.path.abspath(__file__))
 CARTES = os.path.join(ICI, "..", "cartes")
 SORTIES = os.path.join(ICI, "_cartes")
+REGISTRE = os.path.join(ICI, "_variantes_cartes.json")
+VERROU = threading.Lock()   # le serveur local sert plusieurs requetes a la fois
+
+# --- Les statistiques tirees au hasard, mais fideles au type ---------------------
+#
+# Loys, 15/09/2026 : « des statistiques au hasard a chaque generation, qui
+# correlent avec le type, mais jamais deux fois la meme carte sauf au bout de x
+# variantes ».
+#
+# ⚠️ UN TRAIT HAUT RESTE TOUJOURS AU-DESSUS D'UN TRAIT BAS. Haut : 3, 4 ou 5
+# segments ; bas : 1 ou 2. Les deux plages ne se chevauchent pas : sans ca, une
+# carte pourrait montrer « Extraversion » plus basse que « Conscienciosite » sur
+# un type dont le code dit l'inverse, et la carte contredirait son propre nom.
+#
+# ⚠️ Ce ne sont PAS les segments de la carte de l'app (4 et 2, fixes). C'est une
+# variation illustrative, voulue pour ce generateur uniquement.
+SEGMENTS_HAUT = (3, 4, 5)
+SEGMENTS_BAS = (1, 2)
 
 W, H = 1080, 1350          # format 4:5, celui des publications TikTok en photo
 
@@ -78,7 +100,36 @@ def texte_espace(draw, x, y, texte, fonte, couleur, interlettre):
         x += draw.textlength(ch, font=fonte) + interlettre
 
 
-def dessiner_carte(t, fam, traits, prenom, largeur):
+def variantes(t, traits):
+    """Toutes les combinaisons de segments possibles pour ce type, dans un ordre stable."""
+    plages = [SEGMENTS_HAUT if t["bigFive"][tr["cle"]] == "high" else SEGMENTS_BAS for tr in traits]
+    return ["".join(map(str, combi)) for combi in itertools.product(*plages)]
+
+
+def tirer_segments(t, traits, rnd=None):
+    """Une variante pas encore sortie pour ce type.
+
+    Le registre retient, par type, les variantes deja utilisees. Quand toutes
+    sont sorties, le cycle recommence : c'est le « au bout de x variantes ».
+    ⚠️ Le registre vit dans gen/_variantes_cartes.json, ignore par git : il est
+    propre a chaque poste, comme les registres de prenoms, poses et lieux."""
+    rnd = rnd or random.Random()
+    toutes = variantes(t, traits)
+    with VERROU:
+        registre = json.load(open(REGISTRE, encoding="utf-8")) if os.path.exists(REGISTRE) else {}
+        deja = set(registre.get(t["id"], [])) & set(toutes)
+        libres = [v for v in toutes if v not in deja]
+        if not libres:                   # toutes sorties : nouveau cycle
+            deja, libres = set(), toutes
+        choix = rnd.choice(libres)
+        deja.add(choix)
+        registre[t["id"]] = sorted(deja)
+        json.dump(registre, open(REGISTRE, "w", encoding="utf-8"), indent=0)
+    segments = {tr["cle"]: int(ch) for tr, ch in zip(traits, choix)}
+    return segments, len(deja), len(toutes)
+
+
+def dessiner_carte(t, fam, traits, prenom, largeur, segments):
     """La carte seule, sur fond transparent. Mesures de PersonalityCards.tsx."""
     Wc = largeur
     k = Wc / 240
@@ -159,7 +210,7 @@ def dessiner_carte(t, fam, traits, prenom, largeur):
     dot_gap = max(2, round(px(3)))
     x_dots = Wc - px(14.5) - (dot_w * 5 + dot_gap * 4)
     for tr in traits:
-        allumes = t["segments"][tr["cle"]]
+        allumes = segments[tr["cle"]]
         milieu = y + ligne_rang / 2
         d.text((px(14.5), milieu), tr["libelle"], font=f_lib, fill=hexa("#5A5A5A"), anchor="lm")
         for i in range(5):
@@ -179,15 +230,20 @@ def dessiner_carte(t, fam, traits, prenom, largeur):
 
 
 def rendre(type_id, prenom, dst):
-    """Ecrit la carte, centree sur la teinte pale de sa famille, en 1080 x 1350."""
+    """Ecrit la carte, centree sur la teinte pale de sa famille, en 1080 x 1350.
+
+    Rend le type, complete du tirage : `segments`, et `variante` / `variantes`
+    (combien de variantes de ce type sont sorties dans le cycle en cours, sur
+    combien de possibles)."""
     data = donnees()
     t = next((x for x in data["types"] if x["id"] == type_id), None)
     if not t:
         raise SystemExit(f"Type inconnu : {type_id}  (voir --types)")
     fam = data["familles"][t["famille"]]
+    segments, variante, total = tirer_segments(t, data["traits"])
 
     img = Image.new("RGBA", (W, H), hexa(fam["fond"]))
-    carte, masque = dessiner_carte(t, fam, data["traits"], prenom, largeur=660)
+    carte, masque = dessiner_carte(t, fam, data["traits"], prenom, 660, segments)
     x0 = (W - carte.width) // 2
     y0 = (H - carte.height) // 2
 
@@ -198,7 +254,7 @@ def rendre(type_id, prenom, dst):
 
     os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
     img.convert("RGB").save(dst, "JPEG", quality=94)
-    return t
+    return dict(t, segments=segments, variante=variante, variantes=total)
 
 
 if __name__ == "__main__":
@@ -219,4 +275,4 @@ if __name__ == "__main__":
     nom_fichier = re.sub(r"[^\w-]+", "-", f"{prenom}-{type_id}").strip("-").lower()
     sortie = opts.get("sortie") or os.path.join(SORTIES, f"{nom_fichier}.jpg")
     t = rendre(type_id, prenom, sortie)
-    print(f"=> {sortie}  ({t['nom']})")
+    print(f"=> {sortie}  ({t['nom']}, variante {t['variante']}/{t['variantes']})")

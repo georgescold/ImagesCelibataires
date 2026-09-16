@@ -210,6 +210,17 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 
 .vide{color:var(--doux); text-align:center; padding:56px 0; font-size:16px}
 
+/* --------------------------------------------------- carte de personnalite */
+.champ.type{width:300px}
+.champ.prenom{width:220px}
+.carte-resultat{display:flex; gap:18px; align-items:flex-start; margin-top:18px; flex-wrap:wrap}
+.carte-resultat img{
+  width:260px; max-width:100%; display:block; border-radius:var(--r);
+  aspect-ratio:4/5; object-fit:cover; border:1px solid var(--bord); background:var(--panneau-2);
+}
+.carte-infos{display:flex; flex-direction:column; gap:10px; min-width:0}
+.carte-infos .nom-type{font-size:17px; font-weight:800}
+
 /* ================================================================ mobile ==
  *
  * Trois adaptations, pas seulement des colonnes qui retrecissent.
@@ -241,7 +252,8 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 @media (max-width: 640px){
   /* le formulaire : chaque champ sur toute la largeur, bouton en pleine barre */
   .rangee{gap:12px}
-  .champ, .champ.age, .champ.persona, .champ.nom, .champ.genre{width:100%}
+  .champ, .champ.age, .champ.persona, .champ.nom, .champ.genre, .champ.type, .champ.prenom{width:100%}
+  .carte-resultat img{width:100%}
   .rangee > .bouton.primaire{width:100%}
 
   /* la pellicule glisse au doigt, une photo a la fois */
@@ -324,6 +336,33 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
     </div>
     <div id="journal" hidden></div>
     <div id="erreur"></div>
+  </section>
+
+  <section class="panneau">
+    <div class="tete-panneau">
+      <h2>Carte de personnalité</h2>
+      <span class="note" style="color:var(--doux);font-size:15px">au format des cartes Compaatible · gratuit, instantané</span>
+    </div>
+    <div class="rangee">
+      <div class="champ type">
+        <label class="etiquette" for="carteType">Personnalité</label>
+        <select id="carteType"></select>
+      </div>
+      <div class="champ prenom">
+        <label class="etiquette" for="cartePrenom">Prénom</label>
+        <input id="cartePrenom" type="text" maxlength="40" placeholder="ex. Céline">
+      </div>
+      <button class="bouton primaire" id="carteGo">Générer la carte</button>
+    </div>
+    <div id="carteErreur" style="margin-top:14px;color:var(--erreur);font-size:15px"></div>
+    <div class="carte-resultat" id="carteResultat" hidden>
+      <img id="carteImage" alt="Carte de personnalité générée">
+      <div class="carte-infos">
+        <span class="nom-type" id="carteNom"></span>
+        <span class="note" id="carteVariante" style="color:var(--doux);font-size:15px"></span>
+        <a class="bouton telecharge" id="carteDl" href="#" download>Télécharger</a>
+      </div>
+    </div>
   </section>
 
   <div class="barre">
@@ -503,8 +542,47 @@ $('#go').addEventListener('click', async () => {
   }, 1500);
 });
 
+// --------------------------------------------------- carte de personnalite
+async function chargerTypes(){
+  const sel = $('#carteType');
+  try{
+    const d = await (await fetch('/api/types')).json();
+    if(d.erreur){ $('#carteErreur').textContent = d.erreur; return; }
+    d.types.forEach(t => sel.add(new Option(t.nom, t.id)));
+  }catch(err){
+    $('#carteErreur').textContent = 'Types de personnalité indisponibles : redémarre le serveur.';
+  }
+}
+
+$('#carteGo').addEventListener('click', async () => {
+  const go = $('#carteGo');
+  $('#carteErreur').textContent = '';
+  go.classList.add('travaille'); go.disabled = true;
+  try{
+    const r = await fetch('/api/carte', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({type:$('#carteType').value, prenom:$('#cartePrenom').value})
+    });
+    const d = await r.json();
+    if(d.erreur){ $('#carteErreur').textContent = d.erreur; return; }
+    // le parametre de date force le rechargement quand on regenere la meme carte
+    $('#carteImage').src = '/carte/' + d.fichier + '?v=' + Date.now();
+    $('#carteDl').href = '/carte-dl/' + d.fichier;
+    $('#carteNom').textContent = d.nom;
+    $('#carteVariante').textContent =
+      `Variante ${d.variante} sur ${d.variantes} pour ce type` +
+      (d.variante === d.variantes ? ' · toutes sorties, le prochain tirage recommence un cycle' : '');
+    $('#carteResultat').hidden = false;
+  }catch(err){
+    $('#carteErreur').textContent = 'La génération a échoué : ' + err;
+  }finally{
+    go.classList.remove('travaille'); go.disabled = false;
+  }
+});
+
 charger();
 solde();
+chargerTypes();
 </script>
 </body>
 </html>

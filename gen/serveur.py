@@ -22,6 +22,7 @@ VERROU = threading.Lock()
 PERSONAS = ["discrete_nature", "sportive_naturelle", "quarantenaire_filtres", "bobo_voyage", "fetarde"]
 ARCHIVES = os.path.join("gen", "_archives")
 CORBEILLE = os.path.join("gen", "_corbeille")
+CARTES_SORTIE = os.path.join("gen", "_cartes")   # cartes de personnalite generees
 
 # Le nom de dossier arrive du navigateur. Sans ce garde-fou, un nom comme
 # "../../.." sortirait de l'arborescence : on n'accepte que des noms simples.
@@ -162,6 +163,25 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._json({"erreur": str(e)[:120]}, 502)
 
+        if chemin == "/api/types":
+            # Les 16 types de personnalite, pour le bloc « Carte de personnalite ».
+            try:
+                import carte
+                return self._json({"types": [{"id": t["id"], "nom": t["nom"]} for t in carte.donnees()["types"]]})
+            except BaseException as e:  # SystemExit compris : cartes/ absent
+                return self._json({"erreur": str(e)[:200]}, 500)
+
+        m = re.fullmatch(r"/(carte|carte-dl)/([A-Za-z0-9_-]{1,120}\.jpg)", chemin)
+        if m:
+            mode, fichier = m.groups()
+            p = os.path.join(CARTES_SORTIE, fichier)
+            if not os.path.exists(p):
+                return self._envoyer(404, "text/plain", "introuvable")
+            ent = {"Cache-Control": "no-store"}
+            if mode == "carte-dl":
+                ent["Content-Disposition"] = f'attachment; filename="{fichier}"'
+            return self._envoyer(200, "image/jpeg", open(p, "rb").read(), ent)
+
         if chemin.startswith("/api/job/"):
             j = JOBS.get(chemin.rsplit("/", 1)[1])
             return self._json(j or {"etat": "inconnu"})
@@ -208,6 +228,30 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = urlparse(self.path).path
+
+        if route == "/api/carte":
+            # Carte de personnalite, dessinee localement : gratuite et instantanee.
+            # ⚠️ Independante des carrousels (cf. gen/carte.py) : elle s'ecrit dans
+            # gen/_cartes/, jamais dans le dossier d'un carrousel.
+            n = int(self.headers.get("Content-Length", 0))
+            d = json.loads(self.rfile.read(n) or b"{}") or {}
+            prenom = str(d.get("prenom") or "").strip()[:40]
+            if not prenom:
+                return self._json({"erreur": "Indique un prénom."}, 400)
+            try:
+                import carte
+                ids = {t["id"] for t in carte.donnees()["types"]}
+                type_id = d.get("type")
+                if type_id not in ids:
+                    return self._json({"erreur": "Type de personnalité inconnu."}, 400)
+                base = re.sub(r"[^A-Za-z0-9_-]+", "-", f"{prenom}-{type_id}").strip("-").lower() or "carte"
+                fichier = f"{base}.jpg"
+                os.makedirs(CARTES_SORTIE, exist_ok=True)
+                t = carte.rendre(type_id, prenom, os.path.join(CARTES_SORTIE, fichier))
+                return self._json({"ok": True, "fichier": fichier, "nom": t["nom"],
+                                   "variante": t["variante"], "variantes": t["variantes"]})
+            except BaseException as e:
+                return self._json({"erreur": str(e)[:300]}, 500)
 
         if route == "/api/supprimer":
             n = int(self.headers.get("Content-Length", 0))
