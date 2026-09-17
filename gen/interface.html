@@ -602,9 +602,9 @@ Même visage, nouveaux lieux, et les mêmes textes qui reprennent dans l'ordre :
   };
   ecrire('Démarrage…');
 
-  const r = await fetch('/api/etendre', {
+  const r = await fetch('/api/generer', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({nom, combien: LOT})
+    body: JSON.stringify({nom, combien: LOT, etendre: true})
   });
   const {job, erreur} = await r.json();
   if(erreur || !job){

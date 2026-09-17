@@ -321,22 +321,6 @@ class H(BaseHTTPRequestHandler):
             return self._json({"ok": True, "nom": nom, "favori": nom in aimes,
                                "nb_favoris": len(aimes)})
 
-        if route == "/api/etendre":
-            # Photos de plus pour une personne deja generee : on repart de sa
-            # photo 1 et de la description de visage rangee dans son meta.json.
-            n = int(self.headers.get("Content-Length", 0))
-            d = json.loads(self.rfile.read(n) or b"{}") or {}
-            nom = d.get("nom", "")
-            if not NOM_VALIDE.fullmatch(nom or "") or not os.path.isdir(os.path.join("gen", nom)):
-                # une femme archivee doit d'abord etre restauree : le generateur
-                # ecrit dans gen/<nom>, pas dans gen/_archives/<nom>
-                return self._json({"erreur": "carrousel introuvable dans gen/ "
-                                             "(restaure-le s'il est archivé)"}, 404)
-            combien = max(1, min(10, int(d.get("combien") or LOT_SUPPLEMENTAIRE)))
-            import carrousel
-            job = en_tache(nom, lambda noter: carrousel.ajouter(nom, combien, journal=noter))
-            return self._json({"job": job, "nom": nom, "combien": combien})
-
         if route == "/api/supprimer":
             n = int(self.headers.get("Content-Length", 0))
             nom = (json.loads(self.rfile.read(n) or b"{}") or {}).get("nom", "")
@@ -385,6 +369,24 @@ class H(BaseHTTPRequestHandler):
             return self._envoyer(404, "text/plain", "404")
         n = int(self.headers.get("Content-Length", 0))
         d = json.loads(self.rfile.read(n) or b"{}")
+
+        if d.get("etendre"):
+            # Photos de plus pour une personne deja generee : on repart de sa
+            # photo 1 et de la description de visage rangee dans son meta.json.
+            # Meme route que la creation, parce qu'en ligne les deux partagent
+            # la meme fonction (cf. api/generer.py) et que l'interface est
+            # commune aux deux mondes.
+            nom = d.get("nom", "")
+            if not NOM_VALIDE.fullmatch(nom or "") or not os.path.isdir(os.path.join("gen", nom)):
+                # une femme archivee doit d'abord etre restauree : le generateur
+                # ecrit dans gen/<nom>, pas dans gen/_archives/<nom>
+                return self._json({"erreur": "carrousel introuvable dans gen/ "
+                                             "(restaure-le s'il est archivé)"}, 404)
+            combien = max(1, min(10, int(d.get("combien") or LOT_SUPPLEMENTAIRE)))
+            import carrousel
+            job = en_tache(nom, lambda noter: carrousel.ajouter(nom, combien, journal=noter))
+            return self._json({"job": job, "nom": nom, "combien": combien})
+
         age = max(30, min(70, int(d.get("age", 45))))
         persona = d.get("persona") if d.get("persona") in PERSONAS else "discrete_nature"
         genre = "h" if d.get("genre") == "h" else "f"

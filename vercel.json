@@ -3,12 +3,6 @@
   "functions": {
     "api/generer.py": {
       "maxDuration": 300,
-      "memory": 2048,
-      "includeFiles": "gen/**"
-    },
-    "api/etendre.py": {
-      "maxDuration": 300,
-      "memory": 2048,
       "includeFiles": "gen/**"
     },
     "api/index.py": {
@@ -19,6 +13,9 @@
     }
   },
   "rewrites": [
-    { "source": "/", "destination": "/api/index" }
+    {
+      "source": "/",
+      "destination": "/api/index"
+    }
   ]
 }
