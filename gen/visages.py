@@ -182,7 +182,14 @@ def visage(seed=None, age=42, avec_signes=False):
             "beauty spots, skin tags or dark marks on her face, neck or chest. "
             "She is a specific real individual with her own particular face, not a generic symmetrical "
             "AI face, not airbrushed, not a fashion model. She is attractive but her face is slightly "
-            f"asymmetric and human. She looks healthy and well groomed, and no older than {age}.")
+            "asymmetric and human. She looks healthy and well groomed. "
+            # « no older than 42 » ne bornait que d'un cote : le modele satisfaisait la
+            # consigne en dessinant une femme de trente ans. Mesure avant correction :
+            # une demande a 52 ans rendait un visage juge a 30. L'age est donc ferme
+            # des deux cotes, et decrit par ce qui se voit.
+            f"She is {age} years old and she must look exactly {age}: the fine lines, the skin "
+            f"texture and the facial maturity of a real {age}-year-old French woman, never "
+            "younger. She is attractive for her age, not rejuvenated.")
     return (d, signes) if avec_signes else d
 
 
@@ -360,5 +367,9 @@ def visage_h(seed=None, age=45, avec_signes=False):
          "beauty spots or dark marks on his face or neck. "
          "He is a specific real individual with his own particular face, not a generic symmetrical "
          "AI face, not airbrushed, not a male model. He is attractive but his face is slightly "
-         f"asymmetric and human. He looks healthy and well groomed, and no older than {age}.")
+         "asymmetric and human. He looks healthy and well groomed. "
+         # meme borne a deux cotes que pour les femmes, cf. visage()
+         f"He is {age} years old and he must look exactly {age}: the fine lines, the skin "
+         f"texture and the facial maturity of a real {age}-year-old French man, never younger. "
+         "He is attractive for his age, not rejuvenated.")
     return (d, signes) if avec_signes else d

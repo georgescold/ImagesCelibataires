@@ -168,6 +168,80 @@ def rendre_registres(racine):
             ecrire_objet(f"_registres/{nom}", open(p, "rb").read(), "application/json")
 
 
+# ------------------------------------------------ televersement d'un carrousel
+def televerser(nom, racine, meta, journal, numeros=None, creation=True):
+    """Photos, vignettes et metadonnees vers Supabase.
+
+    `numeros` : ne monter que ces photos ; None les prend toutes.
+    `creation` : a la creation on ecrit la fiche entiere ; a l'extension on ne
+    corrige QUE `slides`. La difference n'est pas cosmetique — un upsert sur une
+    fiche existante remet les colonnes absentes du corps a leur valeur par
+    defaut, ce qui sortirait la femme des archives et lui retirerait son favori.
+    """
+    import io, re
+    from PIL import Image
+    dossier = os.path.join(racine, "gen", nom)
+    photos = sorted((f for f in os.listdir(dossier) if re.fullmatch(r"\d+\.jpg", f)),
+                    key=lambda f: int(f[:-4]))
+    if numeros is not None:
+        garder = {int(n) for n in numeros}
+        photos = [f for f in photos if int(f[:-4]) in garder]
+
+    for f in photos:
+        n = f[:-4]
+        brut = open(os.path.join(dossier, f), "rb").read()
+        ecrire_objet(f"{nom}/{f}", brut)
+        im = Image.open(io.BytesIO(brut)).convert("RGB")
+        im.thumbnail((320, 400), Image.LANCZOS)
+        tampon = io.BytesIO()
+        im.save(tampon, "JPEG", quality=72, optimize=True)
+        ecrire_objet(f"{nom}/vignettes/{n}.jpg", tampon.getvalue())
+    journal(f"  {len(photos)} photos et vignettes televersees")
+
+    def ecrire(chemin, methode, corps, quoi):
+        """Une ecriture ratee doit se voir. Sans ce garde-fou, une contrainte
+        de la base rejette une ligne, la fonction rend « televersee » et la
+        photo existe dans le bucket sans jamais apparaitre dans la librairie."""
+        c, r = rest(chemin, methode, corps, prefer=("resolution=merge-duplicates,return=minimal"
+                                                    if methode == "POST" else "return=minimal"))
+        if c not in (200, 201, 204):
+            journal(f"  ECHEC {quoi} : {c} {str(r)[:200]}")
+        return c in (200, 201, 204)
+
+    if creation:
+        # la photo 1 AVANT post-traitement : c'est elle qui servira de reference
+        # si on ajoute des photos plus tard. Sans elle, l'extension repartirait
+        # de l'image floutee, bruitee et deux fois recompressee.
+        brute = os.path.join(racine, "gen", nom + "_raw", "1.jpg")
+        if os.path.exists(brute):
+            ecrire_objet(f"{nom}/brut/1.jpg", open(brute, "rb").read())
+        fiche = {k: meta.get(k) for k in
+                 ("nom", "genre", "prenom", "age", "metier", "recherche", "persona",
+                  "textes", "visage", "signes", "slides")}
+        fiche["statut"] = "a_poster"
+        ecrire("carrousels?on_conflict=nom", "POST", fiche, "fiche")
+    else:
+        ecrire(f"carrousels?nom=eq.{nom}", "PATCH", {"slides": meta.get("slides", [])},
+               "slides de la fiche")
+
+    lignes = []
+    for f in photos:
+        i = int(f[:-4])
+        slide = next((s for s in meta.get("slides", []) if s.get("n") == i), {})
+        textes = meta.get("textes") or []
+        # au-dela de la cinquieme photo les textes reprennent au debut : la
+        # personne n'a qu'une identite, et un second lot de cinq se poste tel quel
+        texte = slide.get("texte") or (textes[(i - 1) % len(textes)] if textes else None)
+        lignes.append({"carrousel": nom, "numero": i, "chemin": f"{nom}/{f}",
+                       "texte": texte, "scene": slide.get("scene"), "lieu": slide.get("lieu")})
+    if lignes and not ecrire("photos?on_conflict=carrousel,numero", "POST", lignes,
+                             "lignes de photos"):
+        # les images sont dans le bucket mais invisibles sans leur ligne :
+        # mieux vaut le dire que de rendre un compte rassurant
+        return 0
+    return len(photos)
+
+
 # ----------------------------------------------------------------- reponses
 def repondre(h, code, ctype, corps, entetes=None):
     if isinstance(corps, str):

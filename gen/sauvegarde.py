@@ -73,6 +73,10 @@ def enregistrer(meta, statut):
         "persona": meta.get("persona"), "textes": meta.get("textes", []),
         "visage": meta.get("visage"), "signes": meta.get("signes"),
         "slides": meta.get("slides", []), "statut": statut,
+        # en local le favori est un fichier a part, en ligne une colonne : sans
+        # cette ligne, une femme mise en favori sur la machine arriverait en
+        # ligne sans son etoile
+        "favori": bool(meta.get("favori")),
     }
     code, rep = _appel(f"{BASE}/rest/v1/carrousels?on_conflict=nom", "POST", fiche,
                        entetes={"Prefer": "resolution=merge-duplicates,return=minimal"})

@@ -11,7 +11,7 @@ tourne encore.
 Le code de generation n'est pas duplique : on recree dans /tmp l'arborescence
 qu'il attend, on le laisse ecrire ses fichiers, puis on televerse le resultat.
 """
-import io, json, os, re, traceback
+import json, os, re, traceback
 from http.server import BaseHTTPRequestHandler
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
@@ -29,43 +29,6 @@ def _nom_libre(base):
     while nom in pris:
         nom, i = f"{base}_{i}", i + 1
     return nom
-
-
-def _televerser(nom, racine, meta, journal):
-    """Photos, vignettes et metadonnees vers Supabase."""
-    from PIL import Image
-    dossier = os.path.join(racine, "gen", nom)
-    photos = sorted(f for f in os.listdir(dossier) if re.fullmatch(r"\d+\.jpg", f))
-
-    for f in photos:
-        n = f[:-4]
-        brut = open(os.path.join(dossier, f), "rb").read()
-        L.ecrire_objet(f"{nom}/{f}", brut)
-        im = Image.open(io.BytesIO(brut)).convert("RGB")
-        im.thumbnail((320, 400), Image.LANCZOS)
-        tampon = io.BytesIO()
-        im.save(tampon, "JPEG", quality=72, optimize=True)
-        L.ecrire_objet(f"{nom}/vignettes/{n}.jpg", tampon.getvalue())
-    journal(f"  {len(photos)} photos et vignettes televersees")
-
-    fiche = {k: meta.get(k) for k in
-             ("nom", "genre", "prenom", "age", "metier", "recherche", "persona",
-              "textes", "visage", "signes", "slides")}
-    fiche["statut"] = "a_poster"
-    L.rest("carrousels?on_conflict=nom", "POST", fiche,
-           prefer="resolution=merge-duplicates,return=minimal")
-
-    lignes = []
-    for f in photos:
-        i = int(f[:-4])
-        slide = next((s for s in meta.get("slides", []) if s.get("n") == i), {})
-        textes = meta.get("textes") or []
-        lignes.append({"carrousel": nom, "numero": i, "chemin": f"{nom}/{f}",
-                       "texte": textes[i - 1] if len(textes) >= i else None,
-                       "scene": slide.get("scene"), "lieu": slide.get("lieu")})
-    L.rest("photos?on_conflict=carrousel,numero", "POST", lignes,
-           prefer="resolution=merge-duplicates,return=minimal")
-    return len(photos)
 
 
 class handler(BaseHTTPRequestHandler):
@@ -103,7 +66,7 @@ class handler(BaseHTTPRequestHandler):
             carrousel.build(nom, persona, age, journal=journal, genre=genre)
             meta = json.load(open(os.path.join(racine, "gen", nom, "meta.json"),
                                   encoding="utf-8"))
-            n = _televerser(nom, racine, meta, journal)
+            L.televerser(nom, racine, meta, journal)
             L.rendre_registres(racine)
             _maj(job_id, etat="fini", lignes=lignes)
         except Exception as e:

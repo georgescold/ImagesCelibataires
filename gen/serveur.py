@@ -23,6 +23,12 @@ PERSONAS = ["discrete_nature", "sportive_naturelle", "quarantenaire_filtres", "b
 ARCHIVES = os.path.join("gen", "_archives")
 CORBEILLE = os.path.join("gen", "_corbeille")
 CARTES_SORTIE = os.path.join("gen", "_cartes")   # cartes de personnalite generees
+FAVORIS = os.path.join("gen", "_favoris.json")   # simple liste de noms
+
+# Photos ajoutees en une fois par le bouton « Plus de photos ». Cinq, parce que
+# les cinq textes a incruster tournent en boucle : un lot de cinq se poste tel
+# quel comme un deuxieme carrousel de la meme personne.
+LOT_SUPPLEMENTAIRE = 5
 
 # Le nom de dossier arrive du navigateur. Sans ce garde-fou, un nom comme
 # "../../.." sortirait de l'arborescence : on n'accepte que des noms simples.
@@ -40,11 +46,29 @@ def dossier_femme(nom):
     return None
 
 
+# ----------------------------------------------------------------- favoris
+def charger_favoris():
+    """Les favoris vivent dans leur propre fichier, pas dans les meta.json :
+    un carrousel genere avant l'interface n'a pas de meta.json, et on veut
+    pouvoir le mettre en favori quand meme."""
+    if os.path.exists(FAVORIS):
+        try:
+            return set(json.load(open(FAVORIS, encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            return set()
+    return set()
+
+
+def sauver_favoris(noms):
+    json.dump(sorted(noms), open(FAVORIS, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
+
+
 # --------------------------------------------------------------- librairie
 def dossiers(archivees=False):
     """Carrousels du disque, du plus recent au plus ancien.
     `archivees` bascule entre le dossier de travail et gen/_archives."""
     base = ARCHIVES if archivees else "gen"
+    aimes = charger_favoris()
     out = []
     if not os.path.isdir(base):
         return out
@@ -64,7 +88,20 @@ def dossiers(archivees=False):
         meta["photos"] = photos
         meta["mtime"] = os.path.getmtime(rep)
         meta["archivee"] = archivees
+        meta["favori"] = nom in aimes
+        # un carrousel sans description de visage ne peut pas etre etendu :
+        # le bouton doit le savoir avant de proposer une depense
+        meta["extensible"] = bool(meta.get("visage"))
         out.append(meta)
+    out.sort(key=lambda m: m["mtime"], reverse=True)
+    return out
+
+
+def dossiers_favoris():
+    """Les favoris, a poster et archives confondus : c'est une categorie a part,
+    pas un filtre de l'onglet courant."""
+    aimes = charger_favoris()
+    out = [f for f in dossiers() + dossiers(True) if f["nom"] in aimes]
     out.sort(key=lambda m: m["mtime"], reverse=True)
     return out
 
@@ -105,10 +142,10 @@ def vignette(nom, fichier):
 
 
 # --------------------------------------------------------------- generation
-def lancer(job_id, nom, persona, age, genre):
-    """Genere dans un thread. Le journal passe par un canal explicite :
-    on ne touche jamais a sys.stdout, qui est global au processus et donc
-    partage avec le serveur HTTP."""
+def lancer(job_id, travail):
+    """Execute `travail(noter)` dans un thread. Le journal passe par un canal
+    explicite : on ne touche jamais a sys.stdout, qui est global au processus et
+    donc partage avec le serveur HTTP."""
     j = JOBS[job_id]
 
     def noter(ligne):
@@ -116,13 +153,20 @@ def lancer(job_id, nom, persona, age, genre):
             j["lignes"].append(str(ligne).rstrip())
 
     try:
-        import carrousel
-        carrousel.build(nom, persona, age, journal=noter, genre=genre)
+        travail(noter)
         j["etat"] = "fini"
-    except Exception as e:
+    except BaseException as e:      # SystemExit compris : carrousel.py s'en sert
         noter(f"ECHEC : {e}")
         j["etat"] = "erreur"
         j["erreur"] = str(e) + chr(10) + traceback.format_exc()[-900:]
+
+
+def en_tache(nom, travail):
+    """Cree le job et demarre le thread. Retourne l'identifiant a suivre."""
+    job_id = uuid.uuid4().hex[:10]
+    JOBS[job_id] = {"etat": "en cours", "lignes": [], "nom": nom, "erreur": None}
+    threading.Thread(target=lancer, args=(job_id, travail), daemon=True).start()
+    return job_id
 
 
 # --------------------------------------------------------------- HTTP
@@ -152,9 +196,14 @@ class H(BaseHTTPRequestHandler):
             return self._envoyer(200, "text/html; charset=utf-8", page())
 
         if chemin == "/api/librairie":
-            arch = urlparse(self.path).query == "archives=1"
-            return self._json({"femmes": dossiers(arch), "personas": PERSONAS,
-                               "nb_actives": len(dossiers()), "nb_archivees": len(dossiers(True))})
+            q = urlparse(self.path).query
+            if q == "favoris=1":
+                femmes = dossiers_favoris()
+            else:
+                femmes = dossiers(q == "archives=1")
+            return self._json({"femmes": femmes, "personas": PERSONAS,
+                               "nb_actives": len(dossiers()), "nb_archivees": len(dossiers(True)),
+                               "nb_favoris": len(charger_favoris()), "lot": LOT_SUPPLEMENTAIRE})
 
         if chemin == "/api/solde":
             try:
@@ -218,9 +267,13 @@ class H(BaseHTTPRequestHandler):
                     if re.fullmatch(r"\d+\.jpg", f) or f == "meta.json":
                         z.write(os.path.join(rep, f), f"{nom}/{f}")
                 fem = next((x for x in dossiers() + dossiers(True) if x["nom"] == nom), None)
-                if fem:
+                if fem and fem["textes"]:
+                    # au-dela de la cinquieme photo les textes reprennent au debut :
+                    # un carrousel etendu a dix photos se poste en deux lots de cinq
+                    t = fem["textes"]
                     z.writestr(f"{nom}/textes.txt", "\n".join(
-                        f"Photo {i+1} : {t}" for i, t in enumerate(fem["textes"])))
+                        f"Photo {int(p[:-4])} : {t[(int(p[:-4]) - 1) % len(t)]}"
+                        for p in sorted(fem["photos"], key=lambda p: int(p[:-4]))))
             return self._envoyer(200, "application/zip", buf.getvalue(),
                                  {"Content-Disposition": f'attachment; filename="{nom}.zip"'})
 
@@ -253,6 +306,37 @@ class H(BaseHTTPRequestHandler):
             except BaseException as e:
                 return self._json({"erreur": str(e)[:300]}, 500)
 
+        if route == "/api/favori":
+            n = int(self.headers.get("Content-Length", 0))
+            d = json.loads(self.rfile.read(n) or b"{}") or {}
+            nom = d.get("nom", "")
+            if not dossier_femme(nom):
+                return self._json({"erreur": "introuvable"}, 404)
+            aimes = charger_favoris()
+            if d.get("favori"):
+                aimes.add(nom)
+            else:
+                aimes.discard(nom)
+            sauver_favoris(aimes)
+            return self._json({"ok": True, "nom": nom, "favori": nom in aimes,
+                               "nb_favoris": len(aimes)})
+
+        if route == "/api/etendre":
+            # Photos de plus pour une personne deja generee : on repart de sa
+            # photo 1 et de la description de visage rangee dans son meta.json.
+            n = int(self.headers.get("Content-Length", 0))
+            d = json.loads(self.rfile.read(n) or b"{}") or {}
+            nom = d.get("nom", "")
+            if not NOM_VALIDE.fullmatch(nom or "") or not os.path.isdir(os.path.join("gen", nom)):
+                # une femme archivee doit d'abord etre restauree : le generateur
+                # ecrit dans gen/<nom>, pas dans gen/_archives/<nom>
+                return self._json({"erreur": "carrousel introuvable dans gen/ "
+                                             "(restaure-le s'il est archivé)"}, 404)
+            combien = max(1, min(10, int(d.get("combien") or LOT_SUPPLEMENTAIRE)))
+            import carrousel
+            job = en_tache(nom, lambda noter: carrousel.ajouter(nom, combien, journal=noter))
+            return self._json({"job": job, "nom": nom, "combien": combien})
+
         if route == "/api/supprimer":
             n = int(self.headers.get("Content-Length", 0))
             nom = (json.loads(self.rfile.read(n) or b"{}") or {}).get("nom", "")
@@ -267,6 +351,10 @@ class H(BaseHTTPRequestHandler):
                 cible = os.path.join(CORBEILLE, f"{nom}_{k}")
                 k += 1
             shutil.move(rep, cible)
+            aimes = charger_favoris()
+            if nom in aimes:
+                aimes.discard(nom)
+                sauver_favoris(aimes)
             brut = rep + "_raw"
             if os.path.isdir(brut):
                 shutil.move(brut, cible + "_raw")
@@ -306,9 +394,9 @@ class H(BaseHTTPRequestHandler):
         while os.path.exists(os.path.join("gen", nom)):
             nom = f"{base}_{i}"
             i += 1
-        job_id = uuid.uuid4().hex[:10]
-        JOBS[job_id] = {"etat": "en cours", "lignes": [], "nom": nom, "erreur": None}
-        threading.Thread(target=lancer, args=(job_id, nom, persona, age, genre), daemon=True).start()
+        import carrousel
+        job_id = en_tache(nom, lambda noter: carrousel.build(nom, persona, age,
+                                                             journal=noter, genre=genre))
         return self._json({"job": job_id, "nom": nom})
 
 

@@ -170,6 +170,30 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 .bouton.archive{border-color:var(--bord); color:var(--doux)}
 .bouton.supprime{border-color:var(--bord); color:var(--doux)}
 .bouton.supprime:hover:not(:disabled){border-color:var(--erreur); color:var(--erreur)}
+
+/* l'etoile : creuse quand la femme n'est pas en favori, pleine et doree sinon */
+.bouton.etoile{
+  border-color:var(--bord); color:var(--doux);
+  font-size:17px; line-height:1; padding:7px 11px;
+}
+.bouton.etoile:hover:not(:disabled){border-color:var(--attention); color:var(--attention)}
+.bouton.etoile.aimee{
+  color:#ffca5c; border-color:#6b4c1a; background:rgba(229,161,60,.14);
+}
+.bouton.plus{
+  background:var(--rose-voile); border-color:var(--accent-sourd); color:var(--accent-clair);
+}
+.bouton.plus:hover:not(:disabled){background:rgba(229,56,95,.24); border-color:var(--accent)}
+
+/* avancement de l'ajout de photos, dans la carte de la personne concernee :
+   plusieurs extensions peuvent tourner en meme temps, chacune a la sienne */
+.extension{
+  margin-bottom:14px; padding:11px 13px;
+  background:var(--panneau-2); border:1px solid var(--bord); border-radius:var(--r);
+  font:13px/1.7 ui-monospace,'Cascadia Mono',Consolas,monospace;
+  color:var(--doux); white-space:pre-wrap; max-height:140px; overflow:auto;
+}
+.extension.rate{color:var(--erreur); border-color:#7a3128}
 .puce.genre{color:var(--accent-clair); border-color:var(--accent-sourd); background:var(--rose-voile)}
 .champ.genre{width:150px}
 .bouton.archive:hover:not(:disabled){border-color:var(--attention); color:var(--attention)}
@@ -210,6 +234,17 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 
 .vide{color:var(--doux); text-align:center; padding:56px 0; font-size:16px}
 
+/* --------------------------------------------------- carte de personnalite */
+.champ.type{width:300px}
+.champ.prenom{width:220px}
+.carte-resultat{display:flex; gap:18px; align-items:flex-start; margin-top:18px; flex-wrap:wrap}
+.carte-resultat img{
+  width:260px; max-width:100%; display:block; border-radius:var(--r);
+  aspect-ratio:4/5; object-fit:cover; border:1px solid var(--bord); background:var(--panneau-2);
+}
+.carte-infos{display:flex; flex-direction:column; gap:10px; min-width:0}
+.carte-infos .nom-type{font-size:17px; font-weight:800}
+
 /* ================================================================ mobile ==
  *
  * Trois adaptations, pas seulement des colonnes qui retrecissent.
@@ -237,23 +272,11 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
   .femme-tete .pousse{margin-left:0}
 }
 
-/* --------------------------------------------------- carte de personnalite */
-.champ.type{width:300px}
-.champ.prenom{width:220px}
-.carte-resultat{display:flex; gap:18px; align-items:flex-start; margin-top:18px; flex-wrap:wrap}
-.carte-resultat img{
-  width:260px; max-width:100%; display:block; border-radius:var(--r);
-  aspect-ratio:4/5; object-fit:cover; border:1px solid var(--bord); background:var(--panneau-2);
-}
-.carte-infos{display:flex; flex-direction:column; gap:10px; min-width:0}
-.carte-infos .nom-type{font-size:17px; font-weight:800}
-
 /* ---- telephone ---- */
 @media (max-width: 640px){
   /* le formulaire : chaque champ sur toute la largeur, bouton en pleine barre */
   .rangee{gap:12px}
-  .champ, .champ.age, .champ.persona, .champ.nom, .champ.genre,
-  .champ.type, .champ.prenom{width:100%}
+  .champ, .champ.age, .champ.persona, .champ.nom, .champ.genre, .champ.type, .champ.prenom{width:100%}
   .carte-resultat img{width:100%}
   .rangee > .bouton.primaire{width:100%}
 
@@ -370,6 +393,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
   <div class="barre">
     <div class="onglets">
       <button class="onglet actif" id="ongActives">À poster</button>
+      <button class="onglet" id="ongFavoris">Favoris</button>
       <button class="onglet" id="ongArchives">Archivées</button>
     </div>
     <input type="search" id="filtre" placeholder="Filtrer par prénom, métier, âge…">
@@ -382,9 +406,21 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 
 <script>
 const $ = s => document.querySelector(s);
-let FEMMES = [], enCours = false, vueArchives = false;
+let FEMMES = [], enCours = false, ONGLET = 'actives';
+// les favoris sont une categorie a part : ils melangent a poster et archivees,
+// donc l'onglet ne se resume plus a un booleen « archives ou non »
+const REQUETE = {actives:'', favoris:'?favoris=1', archives:'?archives=1'};
+const VIDE = {
+  actives:'Aucune femme à poster. Génère-en une ci-dessus.',
+  favoris:'Aucun favori. Clique sur l’étoile d’une femme pour la mettre ici.',
+  archives:'Aucune femme archivée.',
+};
+let LOT = 5;                       // photos ajoutees par le bouton « plus de photos »
 const PAR_PAGE = 6;
 let affichees = PAR_PAGE;
+// nom -> {texte, rate, encours} : l'avancement de l'ajout de photos survit au
+// redessin de la liste, et reste affiche apres coup comme recu de l'operation
+const EXT = {};
 
 const echappe = t => String(t ?? '').replace(/[&<>"]/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -412,10 +448,22 @@ function carte(f){
       <span class="puce">${echappe(f.persona || '—')}</span>
       <span class="puce">${echappe(f.nom)}</span>
       ${f.retro ? '<span class="puce reconstitue">texte reconstitué</span>' : ''}
-      <a class="bouton telecharge minuscule pousse" href="/api/archive?nom=${f.nom}">Tout télécharger</a>
-      <button class="bouton archive minuscule" data-archive="${f.nom}">${f.archivee ? 'Restaurer' : 'Archiver'}</button>
+      ${f.archivee && ONGLET === 'favoris' ? '<span class="puce">archivée</span>' : ''}
+      <button class="bouton etoile minuscule pousse${f.favori ? ' aimee' : ''}"
+        data-favori="${f.nom}" data-aimee="${f.favori ? 1 : 0}"
+        title="${f.favori ? 'Retirer des favoris' : 'Mettre en favori'}">${f.favori ? '★' : '☆'}</button>
+      <button class="bouton plus minuscule" data-plus="${f.nom}"
+        data-qui="${echappe(f.prenom || f.nom)}" ${f.extensible && !(EXT[f.nom] || {}).encours ? '' : 'disabled'}
+        title="${f.extensible
+          ? `${LOT} photos de plus de la même personne, environ ${(LOT * 0.045).toFixed(2).replace('.', ',')} $`
+          : 'Carrousel trop ancien : sa fiche ne contient pas la description du visage'}"
+        >+ ${LOT} photos</button>
+      <a class="bouton telecharge minuscule" href="/api/archive?nom=${f.nom}">Tout télécharger</a>
+      <button class="bouton archive minuscule" data-archive="${f.nom}" data-archivee="${f.archivee ? 1 : 0}">${f.archivee ? 'Restaurer' : 'Archiver'}</button>
       <button class="bouton supprime minuscule" data-supprime="${f.nom}" data-qui="${echappe(f.prenom || f.nom)}">Supprimer</button>
     </div>
+    <div class="extension${(EXT[f.nom] || {}).rate ? ' rate' : ''}" id="ext-${f.nom}"
+      ${EXT[f.nom] ? '' : 'hidden'}>${echappe((EXT[f.nom] || {}).texte || '')}</div>
     <div class="pellicule">${vues}</div>
   </article>`;
 }
@@ -429,7 +477,7 @@ function rendre(){
     ? vus.map(carte).join('') + (l.length > vus.length
         ? `<button class="bouton" id="plus" style="width:100%">Afficher les ${Math.min(PAR_PAGE, l.length - vus.length)} suivantes (${l.length - vus.length} restantes)</button>`
         : '')
-    : `<div class="vide">${vueArchives ? 'Aucune femme archivée.' : 'Aucune femme à poster. Génère-en une ci-dessus.'}</div>`;
+    : `<div class="vide">${VIDE[ONGLET]}</div>`;
   const b = $('#plus');
   if(b) b.onclick = () => { affichees += PAR_PAGE; rendre(); };
   $('#filtreNote').textContent = q
@@ -455,40 +503,31 @@ async function solde(){
 setInterval(solde, 60000);
 
 async function charger(){
-  try{
-    const r = await fetch('/api/librairie' + (vueArchives ? '?archives=1' : ''));
-    if(r.status === 401){ location.reload(); return; }
-    // la reponse n'est pas toujours du JSON : une fonction qui plante renvoie du HTML
-    const brut = await r.text();
-    let d = {};
-    try{ d = JSON.parse(brut); }catch(e){}
-    if(!r.ok || !Array.isArray(d.femmes)) throw new Error(d.erreur || `${r.status} ${brut.slice(0, 120)}`);
-    FEMMES = d.femmes;
-    const sel = $('#persona');
-    if(!sel.options.length) d.personas.forEach(p => sel.add(new Option(p.replace(/_/g,' '), p)));
-    $('#compte').textContent = `${d.nb_actives} à poster · ${d.nb_archivees} archivée${d.nb_archivees > 1 ? 's' : ''}`;
-    $('#ongActives').textContent = `À poster (${d.nb_actives})`;
-    $('#ongArchives').textContent = `Archivées (${d.nb_archivees})`;
-    rendre();
-  }catch(err){
-    // sans ce garde-fou, la moindre panne laissait « Chargement… » a l'ecran
-    // indefiniment, sans dire ce qui n'allait pas (base en pause, par exemple)
-    $('#librairie').innerHTML = `<div class="vide">Bibliothèque injoignable.
-      <div style="margin-top:8px;font-size:14px;opacity:.7">${echappe(String(err.message || err))}</div>
-      <button class="bouton" id="reessayer" style="margin-top:14px">Réessayer</button></div>`;
-    $('#reessayer').onclick = charger;
-  }
+  const r = await fetch('/api/librairie' + REQUETE[ONGLET]);
+  if(r.status === 401){ location.reload(); return; }
+  const d = await r.json();
+  FEMMES = d.femmes;
+  LOT = d.lot || LOT;
+  const sel = $('#persona');
+  if(!sel.options.length) d.personas.forEach(p => sel.add(new Option(p.replace(/_/g,' '), p)));
+  $('#compte').textContent = `${d.nb_actives} à poster · ${d.nb_favoris} favori${d.nb_favoris > 1 ? 's' : ''} · ${d.nb_archivees} archivée${d.nb_archivees > 1 ? 's' : ''}`;
+  $('#ongActives').textContent = `À poster (${d.nb_actives})`;
+  $('#ongFavoris').textContent = `Favoris (${d.nb_favoris})`;
+  $('#ongArchives').textContent = `Archivées (${d.nb_archivees})`;
+  rendre();
 }
 
-function onglet(archives){
-  vueArchives = archives;
+function onglet(quel){
+  ONGLET = quel;
   affichees = PAR_PAGE;
-  $('#ongActives').classList.toggle('actif', !archives);
-  $('#ongArchives').classList.toggle('actif', archives);
+  $('#ongActives').classList.toggle('actif', quel === 'actives');
+  $('#ongFavoris').classList.toggle('actif', quel === 'favoris');
+  $('#ongArchives').classList.toggle('actif', quel === 'archives');
   charger();
 }
-$('#ongActives').onclick = () => onglet(false);
-$('#ongArchives').onclick = () => onglet(true);
+$('#ongActives').onclick = () => onglet('actives');
+$('#ongFavoris').onclick = () => onglet('favoris');
+$('#ongArchives').onclick = () => onglet('archives');
 
 $('#filtre').addEventListener('input', () => { affichees = PAR_PAGE; rendre(); });
 
@@ -511,15 +550,32 @@ Le carrousel passe en corbeille : il disparaît des deux onglets mais les photos
   const a = e.target.closest('[data-archive]');
   if(a){
     a.disabled = true;
+    // l'etat vient du bouton, pas de l'onglet : dans « Favoris » les deux se cotoient
     const r = await fetch('/api/action', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({nom: a.dataset.archive, action: vueArchives ? 'restaurer' : 'archiver'})
+      body: JSON.stringify({nom: a.dataset.archive,
+                            action: a.dataset.archivee === '1' ? 'restaurer' : 'archiver'})
     });
     const d = await r.json();
     if(d.erreur){ a.disabled = false; $('#erreur').textContent = d.erreur; return; }
     charger();
     return;
   }
+  const fav = e.target.closest('[data-favori]');
+  if(fav){
+    fav.disabled = true;
+    const r = await fetch('/api/action', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({nom: fav.dataset.favori,
+                            action: fav.dataset.aimee === '1' ? 'defavori' : 'favori'})
+    });
+    const d = await r.json();
+    if(d.erreur){ fav.disabled = false; $('#erreur').textContent = d.erreur; return; }
+    charger();
+    return;
+  }
+  const plus = e.target.closest('[data-plus]');
+  if(plus){ etendre(plus); return; }
   const b = e.target.closest('[data-copie]');
   if(!b) return;
   navigator.clipboard.writeText(b.dataset.copie).then(() => {
@@ -527,6 +583,53 @@ Le carrousel passe en corbeille : il disparaît des deux onglets mais les photos
     setTimeout(() => b.textContent = v, 1200);
   });
 });
+
+// ------------------------------------ photos supplémentaires d'une personne
+// L'avancement s'affiche dans la carte de la personne concernée, pas dans le
+// journal du haut : on peut en lancer plusieurs et continuer à naviguer.
+async function etendre(bouton){
+  const nom = bouton.dataset.plus, qui = bouton.dataset.qui;
+  if((EXT[nom] || {}).encours) return;
+  const prix = (LOT * 0.045).toFixed(2).replace('.', ',');
+  if(!confirm(`Générer ${LOT} photos de plus de ${qui} ?
+
+Même visage, nouveaux lieux, et les mêmes textes qui reprennent dans l'ordre : le lot se poste tel quel comme un second carrousel. Environ ${prix} $.`)) return;
+
+  bouton.disabled = true;
+  const ecrire = (texte, rate, encours = true) => {
+    EXT[nom] = {texte, rate, encours};
+    const z = document.getElementById('ext-' + nom);   // re-cherche : la liste se redessine
+    if(!z) return;
+    z.hidden = false;
+    z.classList.toggle('rate', !!rate);
+    z.textContent = texte;
+    z.scrollTop = 1e6;
+  };
+  ecrire('Démarrage…');
+
+  const r = await fetch('/api/etendre', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({nom, combien: LOT})
+  });
+  const {job, erreur} = await r.json();
+  if(erreur || !job){
+    bouton.disabled = false;
+    ecrire(erreur || 'La génération n’a pas démarré.', true, false);
+    return;
+  }
+
+  const t = setInterval(async () => {
+    const j = await (await fetch('/api/job?id=' + job)).json();
+    const fini = j.etat === 'fini' || j.etat === 'erreur';
+    ecrire((j.lignes || []).join('\n') || 'Génération en cours…', j.etat === 'erreur', !fini);
+    if(fini){
+      clearInterval(t);
+      if(j.etat === 'erreur') ecrire(j.erreur || 'Échec.', true, false);
+      charger();
+      solde();
+    }
+  }, 1500);
+}
 
 $('#go').addEventListener('click', async () => {
   if(enCours) return;
@@ -560,18 +663,14 @@ $('#go').addEventListener('click', async () => {
 });
 
 // --------------------------------------------------- carte de personnalite
-// Dessinee par la fonction /api/carte, qui appelle le meme gen/carte.py qu'en
-// local. Gratuite et sans fal : rien a deduire du solde.
 async function chargerTypes(){
   const sel = $('#carteType');
   try{
-    const r = await fetch('/api/carte?types=1');
-    if(r.status === 401) return;
-    const d = await r.json();
+    const d = await (await fetch('/api/types')).json();
     if(d.erreur){ $('#carteErreur').textContent = d.erreur; return; }
     d.types.forEach(t => sel.add(new Option(t.nom, t.id)));
   }catch(err){
-    $('#carteErreur').textContent = 'Types de personnalité indisponibles : ' + err;
+    $('#carteErreur').textContent = 'Types de personnalité indisponibles : redémarre le serveur.';
   }
 }
 
@@ -587,8 +686,8 @@ $('#carteGo').addEventListener('click', async () => {
     const d = await r.json();
     if(d.erreur){ $('#carteErreur').textContent = d.erreur; return; }
     // le parametre de date force le rechargement quand on regenere la meme carte
-    $('#carteImage').src = '/api/carte?fichier=' + d.fichier + '&v=' + Date.now();
-    $('#carteDl').href = '/api/carte?fichier=' + d.fichier + '&dl=1';
+    $('#carteImage').src = '/carte/' + d.fichier + '?v=' + Date.now();
+    $('#carteDl').href = '/carte-dl/' + d.fichier;
     $('#carteNom').textContent = d.nom;
     $('#carteVariante').textContent =
       `Variante ${d.variante} sur ${d.variantes} pour ce type` +
@@ -604,6 +703,11 @@ $('#carteGo').addEventListener('click', async () => {
 charger();
 solde();
 chargerTypes();
+
+$('#sortir').onclick = async () => {
+  await fetch('/api/sortir', {method:'POST'});
+  location.reload();
+};
 </script>
 </body>
 </html>

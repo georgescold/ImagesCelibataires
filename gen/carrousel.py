@@ -9,14 +9,23 @@ Personas : sportive_naturelle | quarantenaire_filtres | bobo_voyage | fetarde | 
 
 Les poses deja utilisees sont memorisees dans gen/_poses_utilisees.json :
 deux carrousels ne rejouent jamais la meme pose tant que la banque n'est pas epuisee.
+
+Chaque photo passe au controle (gen/controle.py) avant d'etre gardee : meme
+visage que la photo 1, anatomie possible, rien d'impossible dans le cadre, et
+l'age demande. Une photo recalee est refaite, deux fois au plus, avec la faute
+constatee reinjectee dans le prompt.
+
+`ajouter()` reprend un carrousel deja genere et lui fabrique des photos
+supplementaires a partir de son propre visage : meme personne, nouveaux lieux.
 """
-import sys, os, base64, json, random
+import sys, os, base64, json, random, time
 sys.path.insert(0, 'gen')
 from runner import call, first_image_url, download
 from pipeline import finish
 from filters import PERSONAS
 from poses import tirage
 import lieux
+import controle
 from genre import au_masculin as au_masc
 from visages import visage, visage_h
 from identite import identite, identite_h
@@ -25,6 +34,11 @@ WH = {"image_size": {"width": 832, "height": 1040}, "output_format": "jpeg"}
 T2I = "fal-ai/flux-2-pro"
 EDIT = "fal-ai/flux-2-pro/edit"
 ETAT = "gen/_poses_utilisees.json"
+
+# Relances au maximum par photo quand le controle la recale. Au-dela on garde la
+# derniere et on l'ecrit dans le journal : trois essais rates sur la meme scene
+# veulent dire que c'est la scene qui coince, pas le tirage.
+RELANCES = 2
 
 # --- Regles non negociables, deduites du compte source ---
 RULES = (
@@ -56,6 +70,76 @@ def bloc(x):
             f"{x['cadrage']} {x['angle']} {x['lumiere']}{x['physique']}")
 
 
+# --------------------------------------------------------------------- controle
+# Le seul reproche que le controle adresse a la photo 1 en propre : elle sert de
+# reference aux quatre autres, donc son visage doit etre lisible.
+VISAGE_LISIBLE = "visage de la photo 1 trop petit ou masqué : elle sert de référence"
+
+
+def _controler(chemin, reference, age, genre, dire, exiger_visage=False):
+    """Passe une photo au controle. Retourne (ok, soucis, rapport).
+
+    `exiger_visage` : pour la photo 1 seulement. Elle sert de reference aux
+    quatre autres, donc un visage masque ou minuscule y est disqualifiant meme
+    si l'image est par ailleurs correcte — c'est ce qui fait deriver un
+    carrousel entier (constate : une photo 1 en lunettes noires de nuit, et les
+    quatre suivantes ont chacune leur propre visage).
+    """
+    if not controle.actif():
+        return True, [], {}
+    rapport = controle.inspecter(chemin, reference=reference, genre=genre)
+    if rapport.get("panne"):
+        dire(f"    controle indisponible ({rapport['panne'][:70]}), photo gardee")
+        return True, [], rapport
+    ok, soucis = controle.verdict(rapport, age, chemin=chemin)
+    if ok and exiger_visage:
+        pct = rapport.get("visage_pct")
+        if pct is None:
+            pct = controle.mesurer_visage(chemin)
+            rapport["visage_pct"] = pct
+        if rapport.get("visage") == "cache" or (pct is not None and pct < controle.SEUIL_VISAGE):
+            ok, soucis = False, [VISAGE_LISIBLE]
+    return ok, soucis, rapport
+
+
+def _renfort(soucis, genre):
+    """Les consignes a rajouter au prompt de la relance."""
+    if soucis == [VISAGE_LISIBLE]:
+        elle, son = ("He", "his") if genre == "h" else ("She", "her")
+        return (f" {elle} is facing the camera, close enough that {son} head fills a good part of"
+                f" the frame. {son.capitalize()} face is plainly visible and unobstructed: no"
+                " sunglasses, no hand, no phone and no object in front of the eyes, face not"
+                " turned away from the lens.")
+    return controle.consigne_relance(soucis, genre)
+
+
+def _produire(faire, chemin_brut, reference, age, genre, dire, numero, exiger_visage=False):
+    """Genere une photo, la controle, la refait si elle est recalee.
+
+    `faire(renfort)` fait un essai et rend True si l'image est sur le disque ;
+    c'est l'appelant qui sait s'il s'agit d'un text-to-image ou d'une edition.
+    Retourne (reussi, rapport_final, nb_relances).
+    """
+    renfort = ""
+    dernier = {}
+    for essai in range(RELANCES + 1):
+        if not faire(renfort):
+            return False, dernier, essai
+        ok, soucis, dernier = _controler(chemin_brut, reference, age, genre, dire, exiger_visage)
+        if ok:
+            note = controle.resume(dernier)
+            if note:
+                dire(f"    contrôle {numero} : {note}")
+            return True, dernier, essai
+        if essai == RELANCES:
+            dire(f"    {numero} gardée malgré : {' ; '.join(soucis)}")
+            return True, dernier, essai
+        dire(f"    {numero} recalée ({' ; '.join(soucis)}) — on refait")
+        renfort = _renfort(soucis, genre)
+    return True, dernier, RELANCES
+
+
+# -------------------------------------------------------------------- generation
 def build(nom, persona="discrete_nature", age=42, seed=None, journal=None, genre="f"):
     """`journal` : fonction appelee pour chaque ligne d'avancement.
     Par defaut on ecrit sur la sortie standard ; le serveur, lui, fournit
@@ -94,35 +178,33 @@ def build(nom, persona="discrete_nature", age=42, seed=None, journal=None, genre
     slide_nb = rnd.randint(1, 5) if rnd.random() < PERSONAS[persona]["p_nb"] * 2.2 else 0
     dire("  visage : " + tete[:110].split(". ")[1][:100] + "...")
     hero = ("Amateur phone snapshot. " + tete + " " + bloc(p0) + (au_masc(RULES) if homme else RULES))
-    ok, body, _ = call(T2I, dict(WH, prompt=hero))
-    if not ok:
-        dire(f"HERO FAIL {body}")
+
+    echec = []
+
+    def essai_hero(renfort):
+        ok, body, _ = call(T2I, dict(WH, prompt=hero + renfort))
+        if not ok:
+            dire(f"HERO FAIL {body}")
+            echec.append(True)
+            return False
+        download(first_image_url(body), f"{raw}/1.jpg")
+        return True
+
+    fait, rap1, n1 = _produire(essai_hero, f"{raw}/1.jpg", None, age, genre, dire, 1,
+                               exiger_visage=True)
+    if echec or not fait:
         return
-    download(first_image_url(body), f"{raw}/1.jpg")
     finish(f"{raw}/1.jpg", f"{fin}/1.jpg", persona=persona, force_nb=(slide_nb == 1),
            seed=rnd.randint(0, 9999), tilt=rnd.choice([0, -2, 2, -3]))
     dire(f"  1 [{p0['scene']}] {p0['decor'][:52]}")
+    controles = [{"n": 1, "relances": n1, "rapport": rap1}]
 
     # --- slides 2 a 5 : meme femme, en image-to-image ---
-    uri = "data:image/jpeg;base64," + base64.b64encode(open(f"{raw}/1.jpg", "rb").read()).decode()
-    ident = (f"Exactly the same {'man' if homme else 'woman'} as the reference photo, same specific face: " + tete +
-             " Identical bone structure, nose, eyes, mouth, skin and hair as the reference. "
-             "A different day and a different outfit. ")
+    ident = _description(tete, homme)
     for i, x in enumerate(plans[1:], start=2):
-        ok, body, _ = call(EDIT, dict(WH, prompt=ident + bloc(x) + rappel + (au_masc(RULES) if homme else RULES), image_urls=[uri]))
-        if not ok and "content_policy" in json.dumps(body):
-            # faux positif du filtre : on retente sans la description detaillee du visage
-            court = f"Exactly the same {'man' if homme else 'woman'} as the reference photo, same face, hair and age. A different day. "
-            ok, body, _ = call(EDIT, dict(WH, prompt=court + bloc(x) + rappel + (au_masc(RULES) if homme else RULES), image_urls=[uri]))
-            if ok:
-                dire("    (relance apres filtre de contenu)")
-        if not ok:
-            dire(f"  FAIL {x['scene']} {str(body)[:160]}")
-            continue
-        download(first_image_url(body), f"{raw}/{i}.jpg")
-        finish(f"{raw}/{i}.jpg", f"{fin}/{i}.jpg", persona=persona, force_nb=(slide_nb == i),
-               seed=rnd.randint(0, 9999), tilt=rnd.choice([0, 0, -2, 2, -1.5, 3]))
-        dire(f"  {i} [{x['scene']}] {x['decor'][:52]}")
+        rap, n = _slide(i, x, raw, fin, ident, rappel, persona, homme, genre, age,
+                        rnd, slide_nb, dire)
+        controles.append({"n": i, "relances": n, "rapport": rap})
 
     meta = {
         "nom": nom, "persona": persona, "age": age, "genre": genre,
@@ -132,15 +214,165 @@ def build(nom, persona="discrete_nature", age=42, seed=None, journal=None, genre
         "slides": [{"n": i + 1, "scene": x["scene"], "lieu": x["decor"],
                     "pose": x["pose"], "prise": x["prise"],
                     "texte": ident_civile["textes"][i]} for i, x in enumerate(plans)],
+        "controle": controles,
         "cree": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
     }
     json.dump(meta, open(f"{fin}/meta.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    _bilan(controles, dire)
     dire(f"=> {fin}  ({ident_civile['prenom']}, {age} ans, {ident_civile['metier']})  ~$0.21")
 
 
+def _description(tete, homme):
+    return (f"Exactly the same {'man' if homme else 'woman'} as the reference photo, same specific face: " + tete +
+            " Identical bone structure, nose, eyes, mouth, skin and hair as the reference. "
+            "A different day and a different outfit. ")
+
+
+def _slide(i, x, raw, fin, ident, rappel, persona, homme, genre, age, rnd, slide_nb, dire,
+           reference=None):
+    """Une photo en image-to-image depuis la photo de reference, controlee et
+    relancee si besoin. Retourne (rapport, nb_relances)."""
+    ref = reference or f"{raw}/1.jpg"
+    uri = "data:image/jpeg;base64," + base64.b64encode(open(ref, "rb").read()).decode()
+    regles = au_masc(RULES) if homme else RULES
+
+    def essai(renfort):
+        prompt = ident + bloc(x) + rappel + regles + renfort
+        ok, body, _ = call(EDIT, dict(WH, prompt=prompt, image_urls=[uri]))
+        if not ok and "content_policy" in json.dumps(body):
+            # faux positif du filtre : on retente sans la description detaillee du visage
+            court = f"Exactly the same {'man' if homme else 'woman'} as the reference photo, same face, hair and age. A different day. "
+            ok, body, _ = call(EDIT, dict(WH, prompt=court + bloc(x) + rappel + regles + renfort,
+                                          image_urls=[uri]))
+            if ok:
+                dire("    (relance apres filtre de contenu)")
+        if not ok:
+            dire(f"  FAIL {x['scene']} {str(body)[:160]}")
+            return False
+        download(first_image_url(body), f"{raw}/{i}.jpg")
+        return True
+
+    fait, rap, n = _produire(essai, f"{raw}/{i}.jpg", ref, age, genre, dire, i)
+    if not fait:
+        return {}, n
+    finish(f"{raw}/{i}.jpg", f"{fin}/{i}.jpg", persona=persona, force_nb=(slide_nb == i),
+           seed=rnd.randint(0, 9999), tilt=rnd.choice([0, 0, -2, 2, -1.5, 3]))
+    dire(f"  {i} [{x['scene']}] {x['decor'][:52]}")
+    return rap, n
+
+
+def _bilan(controles, dire):
+    relances = sum(c["relances"] for c in controles)
+    if not controle.actif():
+        return
+    if relances:
+        dire(f"  contrôle : {relances} photo(s) refaite(s), +{relances * 0.045:.2f} $")
+    else:
+        dire("  contrôle : les photos passent toutes du premier coup")
+
+
+# --------------------------------------------------- photos supplementaires
+def ajouter(nom, combien=5, journal=None, seed=None, avant=None, depart=None):
+    """Ajoute des photos a un carrousel deja genere, a partir de SON visage.
+
+    On ne regenere pas la personne : sa description de visage, ses signes
+    particuliers et sa photo 1 sont deja dans le dossier. Les nouvelles photos
+    reprennent les cinq memes textes en boucle, si bien qu'un second lot de
+    cinq se poste tel quel comme un deuxieme carrousel de la meme femme.
+
+    `avant` : instant (time.time()) au-dela duquel on s'arrete meme s'il reste
+    des photos a faire. En ligne, une fonction Vercel est tuee a 300 s et tout
+    ce qu'elle n'a pas encore televerse serait perdu ; mieux vaut rendre trois
+    photos que zero.
+    """
+    dire = journal or (lambda m: print(m, flush=True))
+    fin, raw = f"gen/{nom}", f"gen/{nom}_raw"
+    chemin_meta = f"{fin}/meta.json"
+    if not os.path.exists(chemin_meta):
+        raise SystemExit(f"{chemin_meta} introuvable : ce carrousel n'a pas de fiche a reprendre.")
+    meta = json.load(open(chemin_meta, encoding="utf-8"))
+    if not meta.get("visage"):
+        raise SystemExit("La fiche ne contient pas la description du visage : "
+                         "ce carrousel est trop ancien pour etre etendu.")
+
+    os.makedirs(raw, exist_ok=True)
+    rnd = random.Random(seed)
+    age = meta.get("age", 45)
+    genre = meta.get("genre", "f")
+    homme = genre == "h"
+    persona = meta.get("persona") if meta.get("persona") in PERSONAS else "discrete_nature"
+    textes = meta.get("textes") or []
+
+    # la reference est l'image BRUTE de la photo 1 : le post-traitement lui a
+    # ajoute flou, bruit et double compression, dont le modele d'edition se
+    # servirait pour dessiner un visage plus flou a chaque generation
+    reference = f"{raw}/1.jpg" if os.path.exists(f"{raw}/1.jpg") else f"{fin}/1.jpg"
+    if not os.path.exists(reference):
+        raise SystemExit("La photo 1 est introuvable : rien a partir de quoi etendre.")
+
+    if depart is None:
+        # en local le dossier fait foi ; en ligne il n'y a dans /tmp que la photo
+        # de reference, et c'est l'appelant qui connait la vraie numerotation
+        existantes = sorted(int(f[:-4]) for f in os.listdir(fin)
+                            if f.endswith(".jpg") and f[:-4].isdigit())
+        depart = (max(existantes) + 1) if existantes else 1
+
+    deja = charger_etat()
+    gen, registre = lieux.charger()
+    scenes = lieux.scenes_disponibles(combien, gen, registre, rnd)
+    plans, deja = tirage(combien, seed=seed, deja=deja, scenes=scenes, genre=genre)
+    for x in plans:
+        lieu, libre = lieux.choisir(x["scene"], gen, registre, rnd)
+        x["decor"] = au_masc(lieu) if homme else lieu
+        registre[lieu] = gen
+        if not libre:
+            dire(f"    (banque de lieux epuisee pour {x['scene']}, repli sur le plus ancien)")
+    lieux.sauver(gen + 1, registre)
+    sauver_etat(deja)
+
+    signes = meta.get("signes") or []
+    rappel = ""
+    if len(signes) >= 2:
+        rappel = ((" He" if homme else " She") + " still has exactly the same two distinguishing"
+                  " features as in the reference photo: " + signes[0] + ", and " + signes[1] +
+                  ". Both must be present and identical here.")
+    ident = _description(meta["visage"], homme)
+    slide_nb = 0                      # le noir et blanc appartient au lot d'origine
+
+    dire(f"  {meta.get('prenom', nom)} : {combien} photo(s) de plus, "
+         f"a partir de la photo 1 du carrousel")
+    nouvelles, controles = [], []
+    for k, x in enumerate(plans):
+        i = depart + k
+        if avant and time.time() > avant:
+            dire(f"    temps imparti atteint : {len(nouvelles)} photo(s) sur {combien}")
+            break
+        rap, n = _slide(i, x, raw, fin, ident, rappel, persona, homme, genre, age,
+                        rnd, slide_nb, dire, reference=reference)
+        if not os.path.exists(f"{fin}/{i}.jpg"):
+            continue
+        nouvelles.append({"n": i, "scene": x["scene"], "lieu": x["decor"],
+                          "pose": x["pose"], "prise": x["prise"],
+                          "texte": textes[(i - 1) % len(textes)] if textes else None})
+        controles.append({"n": i, "relances": n, "rapport": rap})
+
+    meta["slides"] = (meta.get("slides") or []) + nouvelles
+    meta["controle"] = (meta.get("controle") or []) + controles
+    meta["etendu"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
+    json.dump(meta, open(chemin_meta, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    _bilan(controles, dire)
+    dire(f"=> {len(nouvelles)} photo(s) ajoutée(s) à {fin}  "
+         f"~${0.045 * len(nouvelles):.2f}")
+    return [s["n"] for s in nouvelles]
+
+
 if __name__ == "__main__":
-    nom = sys.argv[1] if len(sys.argv) > 1 else "carrousel"
-    pers = sys.argv[2] if len(sys.argv) > 2 else "discrete_nature"
-    age = int(sys.argv[3]) if len(sys.argv) > 3 else 42
-    genre = sys.argv[4] if len(sys.argv) > 4 else "f"
-    build(nom, pers, age, seed=None, genre=genre)
+    if len(sys.argv) > 2 and sys.argv[1] == "+":
+        # python gen/carrousel.py + <nom> [combien]
+        ajouter(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 5)
+    else:
+        nom = sys.argv[1] if len(sys.argv) > 1 else "carrousel"
+        pers = sys.argv[2] if len(sys.argv) > 2 else "discrete_nature"
+        age = int(sys.argv[3]) if len(sys.argv) > 3 else 42
+        genre = sys.argv[4] if len(sys.argv) > 4 else "f"
+        build(nom, pers, age, seed=None, genre=genre)

@@ -50,8 +50,11 @@ Copier `.env.example` et y mettre sa clé. Le fichier `.env` n'est pas versionn�
 |---|---|---|
 | Photo 1, le hero (texte → image) | `fal-ai/flux-2-pro` | 0,030 $ |
 | Photos 2 à 5 (même visage, image → image) | `fal-ai/flux-2-pro/edit` | 0,045 $ |
+| Contrôle de chaque photo | `openrouter/router/vision` | 0,0005 $ |
 
-**0,21 $ le carrousel de 5 photos, environ 80 secondes.**
+**0,21 $ le carrousel de 5 photos, environ 80 secondes.** Le contrôle ajoute
+0,003 $ et 13 secondes ; chaque photo qu'il fait refaire coûte 0,045 $ de plus.
+Mesuré sur un profil de 52 ans : trois photos refaites, soit 0,35 $ au total.
 
 Ces deux modèles ont été retenus après un banc d'essai sur 14 modèles
 text-to-image. Prix mesurés sur les autres candidats : `flux-2 klein 9B`
@@ -63,6 +66,29 @@ Après génération, chaque image passe par un post-traitement local gratuit
 qui fait autant que le modèle : recadrage en 640×800, léger flou, bruit de
 capteur, étalonnage doux, horizon de travers et double compression JPEG.
 C'est ce qui transforme une image IA propre en photo qui sort d'un téléphone.
+
+---
+
+## Photos en plus, et favoris
+
+**« + 5 photos »** sur la fiche d'une personne repart de son visage plutôt que
+d'en inventer un autre : sa description, ses signes particuliers et sa photo 1
+sont déjà dans sa fiche. Les nouvelles photos reprennent les cinq mêmes textes
+en boucle — prénom, âge, profession, recherche, appel à commenter — si bien
+qu'un lot de cinq se poste tel quel comme un second carrousel de la même femme.
+Environ 0,22 $ le lot.
+
+La référence est l'image **brute** de la photo 1, pas celle qui est publiée :
+celle-ci a reçu flou, bruit et double compression, et le modèle d'édition s'en
+servirait pour dessiner un visage un peu plus flou à chaque fois. En ligne, la
+photo brute est donc déposée dans le stockage à la génération.
+
+**L'étoile** met une personne dans l'onglet « Favoris », qui est une catégorie à
+part et non un filtre : on y trouve aussi bien des femmes à poster que des
+archivées. Une femme mise à la corbeille en sort. En local les favoris sont une
+simple liste dans `gen/_favoris.json`, ce qui permet d'en marquer une générée
+avant l'interface, qui n'a pas de `meta.json` ; en ligne, c'est une colonne de
+la fiche.
 
 ---
 
@@ -121,18 +147,19 @@ faire transiter par une fonction coûtait 8,5 secondes par image.
 | `gen/ouvre.bat` | Attend que le serveur réponde puis ouvre le navigateur |
 | `gen/serveur.py` | Serveur local, API, vignettes, zip, archives, corbeille |
 | `gen/interface.html` | Interface (relue à chaque requête, modifiable à chaud) |
-| `gen/carrousel.py` | Le générateur complet |
+| `gen/carrousel.py` | Le générateur complet, et l'ajout de photos à un profil |
+| `gen/controle.py` | Contrôle visuel de chaque photo avant de la garder |
 | `gen/runner.py` | Appels fal, lecture de la clé |
 | `gen/visages.py` | ~747 milliards de visages, versions féminine et masculine |
 | `gen/poses.py` | 86 poses sûres, contraintes d'anatomie et de regard |
 | `gen/lieux.py` | 225 fonds, carence de 30 générations avant réutilisation |
 | `gen/filters.py` | Étalonnage doux et continu, par persona |
-| `gen/identite.py` | Prénoms, métiers et textes à incruster |
+| `gen/identite.py` | Prénoms INSEE par cohorte, métiers et textes à incruster |
 | `gen/genre.py` | Conversion féminin → masculin des banques de textes |
 | `gen/pipeline.py` | Post-traitement « vraie photo de téléphone » |
 | `gen/sauvegarde.py` | Envoi des carrousels locaux vers Supabase |
 | `gen/faire_web.py` | Fabrique `web/app.html` depuis l'interface locale |
-| `api/*.py` | Fonctions Vercel : bibliothèque, génération, médias, session |
+| `api/*.py` | Fonctions Vercel : bibliothèque, génération, extension, médias, session |
 | `web/*.html` | Interface en ligne et page de connexion |
 
 ---
@@ -151,6 +178,24 @@ cela bloque 150 fonds en permanence, d'où les 225 de la banque. Le tirage
 privilégie les types de scène dont la réserve est la plus libre, sinon un type
 s'épuise localement. Vérifié par simulation sur 300 profils : zéro violation.
 
+**Les prénoms viennent de l'état civil, pas de l'intuition.** Les six banques
+sont le classement réel des 60 prénoms les plus donnés à chaque cohorte de
+naissance, calculé sur le [fichier des prénoms de
+l'INSEE](https://www.insee.fr/fr/statistiques/7633685) — de 46 % des naissances
+pour les plus jeunes à 81 % pour les hommes nés entre 1956 et 1964. Deux
+précautions à la lecture du fichier : l'état civil enregistre les variantes
+accentuées séparément (182 343 `JEROME` contre 22 847 `JÉRÔME`, qui sont le même
+prénom, et dont la graphie majoritaire est la fautive), et un prénom suit sa
+génération et non un âge — une femme de 45 ans est née en 1981 aujourd'hui et en
+1991 dans dix ans. Les banques sont donc indexées par année de naissance, ce qui
+les garde justes sans y revenir.
+
+**Un prénom ne revient pas avant 40 profils**, et c'est arithmétique plutôt que
+probabiliste : 60 prénoms par banque contre une fenêtre de 40, si bien que même
+quarante profils consécutifs de la même cohorte en laissent vingt de libres.
+`python gen/identite.py` le vérifie par simulation — sur 400 profils d'âges
+tirés au hasard, 134 prénoms différents et le retour le plus court à 41 profils.
+
 **Les banques de textes ne sont pas dupliquées pour les hommes, elles sont
 converties.** La seule difficulté de l'anglais est « her », tantôt possessif
 (`her free hand` → *his*) tantôt complément (`behind her` → *him*) ; la règle
@@ -159,12 +204,41 @@ et les adverbes. Vérifié sur les 119 textes de la banque.
 
 ---
 
+## Le contrôle automatique
+
+Chaque photo est relue par un modèle de vision avant d'être gardée, sur l'image
+**brute** — le flou, le bruit et la double compression du post-traitement sont
+ajoutés exprès, et un juge les prendrait pour des défauts. Quatre questions :
+est-ce la même personne que sur la photo 1, l'anatomie est-elle possible, y a-t-il
+un élément qui ne peut pas exister, et la personne fait-elle son âge. Une photo
+recalée est refaite, deux fois au plus, avec la faute constatée réinjectée dans
+le prompt. `ATELIER_CONTROLE=0` désactive tout.
+
+Mesure sur 20 photos déjà générées : 4 recalées, dont 3 vrais défauts (une femme
+de 49 ans au visage de 35, deux visages qui ont dérivé) et zéro faux positif.
+
+**Le juge ne sait pas s'abstenir, alors on l'en empêche.** Sur la photo où le
+sujet est minuscule dans le cadre — une règle du format, pas un accident — il
+répond « ce n'est pas la même personne » avec 90 % de certitude et cite les
+traits qui diffèrent, sur un visage haut de 50 pixels. Lui demander de douter ne
+change rien, sa certitude vaut 90 dans les deux cas. En revanche il *localise*
+très bien. Un verdict qui porte sur le visage déclenche donc un second appel qui
+ne demande que la boîte englobante ; en dessous de 12 % de la hauteur d'image, le
+reproche est écarté. Mesuré : gros plan 30 à 44 %, plan moyen 18 à 23 %, femme au
+bout de la rue 5,9 %. Cette question doit être posée **seule** — noyée dans les
+autres, la même mesure rend 14 % au lieu de 6.
+
+**La photo 1 a une exigence de plus** : son visage doit être lisible, puisque les
+quatre autres s'y comparent. Un carrousel dont la photo 1 portait des lunettes
+noires de nuit a vu ses quatre suivantes partir chacune de son côté.
+
 ## Limite connue
 
-**La cohérence du visage se dégrade sur environ une photo sur dix**, davantage
-au-delà de 50 ans, et d'autant plus que les lumières des scènes tirées sont
-éloignées les unes des autres. La parade actuelle est de régénérer la photo
-fautive (0,045 $). Un contrôle automatique de ressemblance reste à faire.
+La cohérence du visage se dégrade toujours à la génération, davantage au-delà de
+50 ans et quand les lumières des scènes tirées sont éloignées ; le contrôle la
+rattrape au lieu de l'empêcher. Il reste aussi un biais du modèle d'image vers la
+jeunesse que le prompt ne corrige qu'à moitié : à 52 ans demandés, le visage rendu
+en paraît 45.
 
 ---
 
@@ -172,11 +246,12 @@ fautive (0,045 $). Un contrôle automatique de ressemblance reste à faire.
 
 | Nom | Rôle |
 |---|---|
-| `FAL_KEY` | Clé fal, pour la génération |
+| `FAL_KEY` | Clé fal, pour la génération et le contrôle |
 | `SUPABASE_URL` | URL du projet Supabase |
 | `SUPABASE_SERVICE_KEY` | Clé de service, accès au stockage et aux tables |
 | `ATELIER_MDP` | Mot de passe de l'interface en ligne |
 | `SESSION_SECRET` | Signature du cookie de session |
+| `ATELIER_CONTROLE` | `0` pour désactiver le contrôle visuel (actif par défaut) |
 
 En local elles se lisent depuis `.env` ; en ligne depuis les variables du
 projet Vercel. Le fichier `.env` n'est jamais versionné.

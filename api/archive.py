@@ -21,14 +21,21 @@ class handler(BaseHTTPRequestHandler):
             return L.repondre(self, 404, "text/plain", "introuvable")
         fiche = d[0]
 
+        # les numeros viennent de la table : un carrousel etendu en compte plus
+        # de cinq, et une boucle figee a cinq laisserait les nouvelles photos
+        # hors du zip
+        c, ph = L.rest(f"photos?carrousel=eq.{nom}&select=numero&order=numero")
+        numeros = [p["numero"] for p in ph] if c == 200 and isinstance(ph, list) else list(range(1, 6))
+
         tampon = io.BytesIO()
         with zipfile.ZipFile(tampon, "w") as z:
-            for i in range(1, 6):
+            for i in numeros:
                 brut = L.lire_objet(f"{nom}/{i}.jpg")
                 if brut:
                     z.writestr(f"{nom}/{i}.jpg", brut)
             textes = fiche.get("textes") or []
-            z.writestr(f"{nom}/textes.txt",
-                       chr(10).join(f"Photo {i+1} : {t}" for i, t in enumerate(textes)))
+            # au-dela de cinq, les textes reprennent au debut
+            z.writestr(f"{nom}/textes.txt", chr(10).join(
+                f"Photo {i} : {textes[(i - 1) % len(textes)]}" for i in numeros) if textes else "")
         L.repondre(self, 200, "application/zip", tampon.getvalue(),
                    {"Content-Disposition": f'attachment; filename="{nom}.zip"'})
