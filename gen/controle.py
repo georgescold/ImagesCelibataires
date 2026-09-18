@@ -2,38 +2,42 @@
 """
 Controle visuel automatique d'une photo generee.
 
-Trois defauts sont cherches, dans cet ordre d'importance :
+Quatre defauts sont cherches :
 
   1. ce n'est plus la meme personne que sur la photo de reference ;
-  2. l'anatomie est fausse (bras en trop, main a six doigts, membre detache) ;
+  2. le corps est faux — un membre en trop, ou une position qu'aucun etre
+     humain ne peut tenir : bras qui contourne le torse, articulation a
+     l'envers, main posee ou elle n'atteint pas ;
   3. un element impossible traine dans l'image (deuxieme telephone dans la main
-     libre d'un selfie au miroir, personne dupliquee, objet flottant).
-
-Et une quatrieme verification, plus souple : la personne fait-elle son age.
+     libre d'un selfie au miroir, personne dupliquee, objet flottant) ;
+  4. plus souple : la personne fait-elle son age.
 
 Le controle tourne sur l'image BRUTE, avant le post-traitement : le flou, le
 bruit de capteur et la double compression de `pipeline.finish` sont ajoutes
-expres, et un modele de vision les prendrait pour des artefacts.
+expres, et un modele de vision les prendrait pour des artefacts. Ce n'est pas
+theorique : sur la version degradee du triple bras, le juge ne le voit plus.
 
-Le juge est un modele de vision appele par fal : ~0,0005 $ et 2,5 s la photo,
-les deux images dans le meme appel. Un carrousel controle coute donc 0,003 $
-de plus, et chaque relance declenchee 0,045 $.
+Le juge est un modele de vision appele par fal. Deux appels par photo, un
+troisieme seulement quand un reproche porte sur le visage : ~0,001 $ et 5 s la
+photo, soit 0,006 $ de plus par carrousel. Chaque relance declenchee, elle,
+coute 0,045 $.
 
 -------------------------------------------------------------------------------
-Pourquoi on lui demande AUSSI la boite du visage
+Une question a la fois
 
-Le format impose au moins une photo ou le sujet est minuscule dans le cadre.
-Sur celle-la, questionne directement, le juge repond « ce n'est pas la meme
-personne » avec 90 % de certitude et invente les traits qui different — mesure
-faite : il l'a fait sur une femme vue de dos au bout d'une rue, tete haute de
-50 px. Lui demander de s'abstenir ne suffit pas, lui demander sa certitude non
-plus : elle vaut 90 dans les deux cas.
+Les trois appels ne sont pas une precaution, ils sont le resultat de mesures.
+Chaque fois qu'une question a rejoint les autres dans le meme appel, la reponse
+s'est degradee — et toujours en silence, en repondant « ok ».
 
-En revanche il localise tres bien. On lui fait donc encadrer le visage, on
-convertit la boite en pourcentage de la hauteur d'image, et on ne LIT sa
-reponse sur l'identite et sur l'age que si ce pourcentage depasse le seuil.
-Mesure sur les carrousels existants : gros plan 30 a 44 %, plan moyen 18 a
-23 %, femme au bout de la rue 5,9 %.
+  - la boite du visage, posee seule : 6 % pour un visage lointain ; posee avec
+    les autres : 14 %, au-dessus du seuil, garde-fou neutralise ;
+  - le denombrement des membres, pose seul et en trois lignes : trois bras
+    detectes sur trois essais ; pose avec les autres questions, ou simplement
+    accompagne de la liste de ce qu'il faut chercher : zero sur trois.
+
+D'ou la regle suivie ici : une question par appel, aussi courte que possible,
+et un denombrement plutot qu'un avis chaque fois que c'est possible.
+
 """
 import base64, json, os, re
 
@@ -68,7 +72,6 @@ REGLES = (
 POINTS = {
     "visage":   '  "visage": "net" | "cache",',
     "identite": '  "identite": "meme" | "differente" | "indeterminable",',
-    "anatomie": '  "anatomie": "ok" | "<le defaut en cinq mots>",',
     "elements": '  "elements": "ok" | "<l\'element impossible en cinq mots>",',
     "age":      '  "age": <entier, age apparent de la personne>',
 }
@@ -82,11 +85,6 @@ EXPLICATIONS = {
         "- \"identite\" : compare la forme du visage, le nez, les yeux, la bouche, la machoire,"
         " la naissance des cheveux et leur couleur. La coiffure, la tenue, le maquillage, la"
         " lumiere et l'expression changent d'un jour a l'autre : ce ne sont PAS des indices.",
-    "anatomie":
-        "- \"anatomie\" : uniquement des impossibilites — plus ou moins de deux bras, deux mains"
-        " ou deux jambes, une main dont on compte un nombre de doigts different de cinq, un"
-        " membre rattache a rien, une articulation pliee a l'envers, deux parties du corps"
-        " fondues l'une dans l'autre.",
     "elements":
         "- \"elements\" : uniquement des choses qui ne peuvent pas exister — la personne tient"
         " DEUX telephones alors qu'elle prend un selfie, elle apparait deux fois dans l'image,"
@@ -165,11 +163,11 @@ def inspecter(chemin, reference=None, genre="f"):
         entete = (f"L'image 1 est la photo de reference de {qui}. L'image 2 est une nouvelle"
                   " photo censee montrer LA MEME personne, un autre jour, dans un autre lieu"
                   " et une autre tenue.\nJuge UNIQUEMENT l'image 2.\n\n")
-        points = ("visage", "identite", "anatomie", "elements", "age")
+        points = ("visage", "identite", "elements", "age")
         images = [_uri(reference), _uri(chemin)]
     else:
         entete = f"Cette photo montre {qui}.\n\n"
-        points = ("visage", "anatomie", "elements", "age")
+        points = ("visage", "elements", "age")
         images = [_uri(chemin)]
 
     ok, corps, _ = call(MODELE, {
@@ -193,6 +191,74 @@ BOITE = ("Donne la boite englobante du visage de la personne principale, du ment
          " front et d'une oreille a l'autre, en coordonnees normalisees sur 1000.\n"
          "Reponds UNIQUEMENT par ce JSON : {\"boite\": [y0, x0, y1, x1]}\n"
          "S'il n'y a aucun visage visible, reponds {\"boite\": null}.")
+
+# ---------------------------------------------------------------------- corps
+#
+# Le corps a sa propre question, et elle fait COMPTER plutot que juger.
+#
+# Pose au milieu des autres, la question « l'anatomie est-elle correcte ? »
+# rendait « ok » sur un double biceps au miroir ou une TROISIEME main tient le
+# telephone — le rate le plus voyant de la banque de poses, celui qui a fait
+# bannir 23 poses sur 86. Isolee et tournee en denombrement, la meme question
+# rend « bras : 3 ». Compter oblige a suivre chaque membre ; juger autorise a
+# survoler.
+#
+# On agit ensuite sur les nombres, pas sur l'avis : plus de deux bras, de deux
+# mains ou de deux jambes est une faute, moins ne l'est pas — un membre sort du
+# cadre a chaque photo.
+# Cette consigne est volontairement COURTE, et c'est mesure, pas esthetique.
+# Une premiere version enumerait ce qu'il fallait chercher — bras partant d'un
+# mauvais endroit, epaule ou coude hors d'atteinte, torse vrille, poignet
+# retourne. Sur le double biceps a trois bras : 0 detection sur 3 essais. La
+# version ci-dessous, qui ne dit que « suis chaque membre et compte » : 3 sur 3.
+# Les deux repondent juste sur les photos correctes. L'enumeration fait
+# comparer l'image a une liste ; son absence oblige a la regarder.
+CORPS = (
+    "Observe le corps de la personne principale sur cette photo.\n\n"
+    "Suis les membres un par un depuis l'epaule ou la hanche jusqu'a leur extremite, et"
+    " compte ce que tu vois vraiment, sans supposer ce qui devrait etre la.\n\n"
+    "Reponds UNIQUEMENT par ce JSON :\n"
+    "{\n"
+    "  \"bras\": <nombre de bras visibles, meme partiellement>,\n"
+    "  \"mains\": <nombre de mains visibles, meme partiellement>,\n"
+    "  \"jambes\": <nombre de jambes visibles, meme partiellement>,\n"
+    "  \"posture\": \"ok\" | \"<la position impossible, en cinq mots>\"\n"
+    "}\n\n"
+    "Une main tenant le telephone compte comme une main. Un bras coupe par le cadre compte"
+    " s'il est visible.\n"
+    "\"posture\" : reponds \"ok\" si une personne reelle peut tenir cette position. Sinon dis"
+    " laquelle des articulations ou lequel des membres ne va pas."
+)
+
+
+def inspecter_corps(chemin):
+    """Denombrement des membres et tenabilite de la position. Dict, jamais
+    d'exception : {} si le juge ne repond pas."""
+    ok, corps, _ = call(MODELE, {
+        "model": VLM, "prompt": CORPS, "image_urls": [_uri(chemin)],
+        "temperature": 0, "max_tokens": 220}, timeout=150)
+    if not ok:
+        return {}
+    r = _lire_json(corps.get("output", "")) or {}
+    r["cout"] = (corps.get("usage") or {}).get("cost")
+    return r
+
+
+# Au-dela de ces nombres le corps est faux ; en dessous il est simplement hors
+# cadre, ce qui arrive a presque toutes les photos.
+MAXIMA = {"bras": (2, "bras"), "mains": (2, "mains"), "jambes": (2, "jambes")}
+
+
+def _fautes_du_corps(corps):
+    soucis = []
+    for champ, (maxi, mot) in MAXIMA.items():
+        v = corps.get(champ)
+        if isinstance(v, (int, float)) and v > maxi:
+            soucis.append(f"anatomie : {int(v)} {mot} au lieu de {maxi}")
+    p = corps.get("posture")
+    if isinstance(p, str) and p.strip().lower() not in ("ok", "", "aucun", "non", "rien", "n/a"):
+        soucis.append(f"posture : {p.strip()}")
+    return soucis
 
 
 def mesurer_visage(chemin):
@@ -230,11 +296,12 @@ def verdict(rapport, age, chemin=None):
     if net and rapport.get("identite") == "differente":
         soucis.append("ce n'est pas la même personne que sur la photo 1")
 
-    # L'anatomie et les elements impossibles se voient a toutes les tailles.
-    for champ, prefixe in (("anatomie", "anatomie"), ("elements", "élément impossible")):
-        v = rapport.get(champ)
-        if isinstance(v, str) and v.strip().lower() not in ("ok", "", "aucun", "non", "rien", "n/a"):
-            soucis.append(f"{prefixe} : {v.strip()}")
+    # Corps et elements impossibles se voient a toutes les tailles : ni l'un ni
+    # l'autre ne depend de la lisibilite du visage.
+    soucis += _fautes_du_corps(rapport.get("corps") or {})
+    v = rapport.get("elements")
+    if isinstance(v, str) and v.strip().lower() not in ("ok", "", "aucun", "non", "rien", "n/a"):
+        soucis.append(f"élément impossible : {v.strip()}")
 
     vu = rapport.get("age")
     if net and isinstance(vu, (int, float)) and age:
@@ -248,6 +315,22 @@ def verdict(rapport, age, chemin=None):
         if pct is not None and pct < SEUIL_VISAGE:
             soucis = [s for s in soucis if not s.startswith(_SUR_LE_VISAGE)]
     return not soucis, soucis
+
+
+def controler(chemin, reference=None, age=None, genre="f"):
+    """Le controle complet d'une photo : (ok, soucis, rapport).
+
+    Deux appels au juge, parce que deux questions melangees se repondent mal :
+    l'une sur la personne (meme visage, age, element impossible), l'autre sur
+    son corps (denombrement des membres, tenabilite de la position). Un
+    troisieme appel ne part que si un reproche porte sur le visage.
+    """
+    rapport = inspecter(chemin, reference=reference, genre=genre)
+    if rapport.get("panne"):
+        return True, [], rapport
+    rapport["corps"] = inspecter_corps(chemin)
+    ok, soucis = verdict(rapport, age, chemin=chemin)
+    return ok, soucis, rapport
 
 
 def consigne_relance(soucis, genre="f"):
@@ -265,6 +348,12 @@ def consigne_relance(soucis, genre="f"):
             bouts.append(" Anatomy must be correct and complete: exactly two arms, two hands and"
                          " two legs, five fingers on each visible hand, every limb attached to the"
                          " body, no duplicated and no merged body part.")
+        elif s.startswith("posture"):
+            bouts.append(" The body must be in a position a real person can physically hold:"
+                         " each arm grows from its own shoulder and follows a path a real arm can"
+                         " follow, shoulders elbows wrists and knees stay within the range a human"
+                         " joint allows, the torso is not twisted further than a back can turn,"
+                         " and each hand rests somewhere it could actually reach.")
         elif s.startswith("élément"):
             bouts.append(f" The scene must be physically possible: {elle} holds ONE phone and"
                          f" nothing else, {elle} appears exactly once in the frame, no floating"

@@ -220,11 +220,37 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 @media(max-width:860px){.pellicule{grid-template-columns:repeat(2,1fr)}}
 
 .vue{display:grid; grid-template-rows:auto 1fr auto; gap:10px}
+.cadre{position:relative; line-height:0}
 .vue img{
   width:100%; display:block; border-radius:var(--r);
   aspect-ratio:4/5; object-fit:cover;
   background:var(--panneau-2); border:1px solid var(--bord);
+  transition:opacity .2s;
 }
+
+/* la flèche qui refait cette photo-là : posée sur l'image, discrète jusqu'au
+   survol, mais toujours visible au doigt — sur mobile il n'y a pas de survol */
+.refaire{
+  position:absolute; top:8px; right:8px;
+  width:34px; height:34px; padding:0;
+  font:inherit; font-size:17px; line-height:1; font-weight:700;
+  color:var(--texte); background:rgba(14,12,17,.72);
+  border:1px solid var(--bord-vif); border-radius:50%;
+  cursor:pointer; opacity:.35; transition:opacity .15s, background .15s, color .15s;
+  backdrop-filter:blur(4px);
+}
+.vue:hover .refaire, .refaire:focus-visible{opacity:1}
+.refaire:hover:not(:disabled){background:var(--accent); color:#2b060f; border-color:transparent}
+.refaire:disabled{cursor:not-allowed}
+.vue.occupee img{opacity:.35}
+.vue.occupee .refaire{opacity:1; color:transparent; pointer-events:none}
+.vue.occupee .refaire::after{
+  content:''; position:absolute; inset:0; margin:auto;
+  width:15px; height:15px; border-radius:50%;
+  border:2px solid var(--accent-clair); border-top-color:transparent;
+  animation:tourne 700ms linear infinite;
+}
+.vue.ratee .refaire{opacity:1; color:var(--erreur); border-color:var(--erreur)}
 .legende{
   background:var(--panneau-2); border:1px solid var(--bord); border-radius:10px;
   padding:11px 13px; font-size:16px; color:var(--texte); display:flex; align-items:center;
@@ -426,8 +452,16 @@ const echappe = t => String(t ?? '').replace(/[&<>"]/g, c =>
 
 function vue(f, n){
   const txt = (f.textes && f.textes[n-1]) || '';
-  return `<div class="vue">
-    <img src="/vignette/${f.nom}/${n}.jpg" alt="Photo ${n} de ${echappe(f.prenom)}">
+  return `<div class="vue" id="vue-${f.nom}-${n}">
+    <div class="cadre">
+      <img src="/vignette/${f.nom}/${n}.jpg" alt="Photo ${n} de ${echappe(f.prenom)}">
+      <button class="refaire" data-refaire="${f.nom}" data-numero="${n}"
+        ${f.extensible ? '' : 'disabled'}
+        title="${f.extensible
+          ? `Regénérer cette photo — même personne, même décor, autre pose. Environ 0,05 $`
+          : 'Carrousel trop ancien : sa fiche ne contient pas la description du visage'}"
+        aria-label="Regénérer la photo ${n}">↻</button>
+    </div>
     <div class="legende">${echappe(txt)}</div>
     <div class="vue-actions">
       <a class="bouton telecharge minuscule" href="/dl/${f.nom}/${n}.jpg" download>Télécharger</a>
@@ -571,6 +605,8 @@ Les 5 photos partent dans gen/_corbeille, tu peux encore les récupérer à la m
   }
   const plus = e.target.closest('[data-plus]');
   if(plus){ etendre(plus); return; }
+  const rf = e.target.closest('[data-refaire]');
+  if(rf){ refaireUne(rf); return; }
   const b = e.target.closest('[data-copie]');
   if(!b) return;
   navigator.clipboard.writeText(b.dataset.copie).then(() => {
@@ -578,6 +614,60 @@ Les 5 photos partent dans gen/_corbeille, tu peux encore les récupérer à la m
     setTimeout(() => b.textContent = v, 1200);
   });
 });
+
+// ------------------------------------------- refaire une photo en particulier
+// Pas de confirmation : la flèche est petite, posée sur la photo concernée, et
+// l'opération coûte cinq centimes. C'est un geste de retouche, pas un achat.
+function etatVue(nom, n, classe){
+  const v = document.getElementById(`vue-${nom}-${n}`);
+  if(!v) return null;
+  v.classList.remove('occupee', 'ratee');
+  if(classe) v.classList.add(classe);
+  return v;
+}
+
+function rafraichir(nom, n){
+  // la vignette a changé sur le disque mais garde son adresse : sans ce
+  // paramètre le navigateur resservirait celle qu'il a en cache
+  const v = document.getElementById(`vue-${nom}-${n}`);
+  const img = v && v.querySelector('img');
+  if(!img) return;
+  const u = img.src.split('#')[0];
+  img.src = u + (u.includes('?') ? '&' : '?') + 'r=' + Date.now();
+}
+
+async function refaireUne(bouton){
+  const nom = bouton.dataset.refaire, n = bouton.dataset.numero;
+  const v = document.getElementById(`vue-${nom}-${n}`);
+  if(!v || v.classList.contains('occupee')) return;
+  etatVue(nom, n, 'occupee');
+  $('#erreur').textContent = '';
+
+  const r = await fetch('/api/generer', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({nom, numero: +n, refaire: true})
+  });
+  const {job, erreur} = await r.json();
+  if(erreur || !job){
+    etatVue(nom, n, 'ratee');
+    $('#erreur').textContent = erreur || 'La régénération n’a pas démarré.';
+    return;
+  }
+
+  const t = setInterval(async () => {
+    const j = await (await fetch('/api/job/' + job)).json();
+    if(j.etat !== 'fini' && j.etat !== 'erreur') return;
+    clearInterval(t);
+    if(j.etat === 'erreur'){
+      etatVue(nom, n, 'ratee');
+      $('#erreur').textContent = j.erreur || 'La régénération a échoué.';
+      return;
+    }
+    await charger();          // redessine la carte, puis on force l'image
+    rafraichir(nom, n);
+    solde();
+  }, 1500);
+}
 
 // ------------------------------------ photos supplémentaires d'une personne
 // L'avancement s'affiche dans la carte de la personne concernée, pas dans le

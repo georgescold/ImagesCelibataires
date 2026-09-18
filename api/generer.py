@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Generation d'un carrousel en ligne, et ajout de photos a un carrousel existant.
+Generation d'un carrousel en ligne, ajout de photos a un carrousel existant, et
+reprise d'une photo en particulier.
 
 Le travail est fait dans une seule invocation : cinq appels a fal enchaines,
 environ 80 secondes, sous la limite de 300 s declaree dans vercel.json.
@@ -11,11 +12,12 @@ tourne encore.
 Le code de generation n'est pas duplique : on recree dans /tmp l'arborescence
 qu'il attend, on le laisse ecrire ses fichiers, puis on televerse le resultat.
 
-Les deux travaux partagent cette fonction plutot que d'en avoir chacun une :
+Les trois travaux partagent cette fonction plutot que d'en avoir chacun une :
 le plan Hobby de Vercel plafonne a douze fonctions par deploiement, et le
 projet en compte deja douze. Ce n'est pas qu'un pis-aller — etendre un profil
-est une generation comme une autre, meme duree, meme /tmp, meme televersement.
-Le corps de la requete porte `etendre: true` pour demander la seconde.
+ou refaire une de ses photos est une generation comme une autre, meme /tmp,
+meme televersement. Le corps de la requete porte `etendre: true` ou
+`refaire: true` pour demander l'une des deux autres.
 """
 import json, os, re, time, traceback
 from http.server import BaseHTTPRequestHandler
@@ -44,10 +46,14 @@ def _nom_libre(base):
     return nom
 
 
-def _preparer_extension(nom, fiche, racine):
-    """Recree dans /tmp la fiche et la photo de reference, et rend le numero a
-    partir duquel numeroter les nouvelles photos. Rend None si la photo 1 est
-    introuvable dans le stockage."""
+def _preparer_reprise(nom, fiche, racine):
+    """Recree dans /tmp ce dont la reprise d'un carrousel a besoin : sa fiche en
+    meta.json et la photo 1, qui sert de reference. Rend le numero a partir
+    duquel numeroter d'eventuelles nouvelles photos, ou None si la photo 1 est
+    introuvable dans le stockage.
+
+    Partage par l'extension et par la reprise d'une photo : les deux repartent
+    du meme visage et de la meme fiche."""
     dossier = os.path.join(racine, "gen", nom)
     brut = os.path.join(racine, "gen", nom + "_raw")
     os.makedirs(dossier, exist_ok=True)
@@ -76,6 +82,8 @@ class handler(BaseHTTPRequestHandler):
         if not L.authentifie(self.headers):
             return L.refuser(self)
         d = L.corps_json(self)
+        if d.get("refaire"):
+            return self._refaire(d)
         return self._etendre(d) if d.get("etendre") else self._creer(d)
 
     # ------------------------------------------------------------- nouveau profil
@@ -126,7 +134,7 @@ class handler(BaseHTTPRequestHandler):
         def faire(journal):
             debut = time.time()
             racine = L.preparer_tmp()
-            depart = _preparer_extension(nom, fiche, racine)
+            depart = _preparer_reprise(nom, fiche, racine)
             if depart is None:
                 raise RuntimeError("photo 1 introuvable dans le stockage")
             import carrousel
@@ -136,6 +144,41 @@ class handler(BaseHTTPRequestHandler):
                 neuve = json.load(open(os.path.join(racine, "gen", nom, "meta.json"),
                                        encoding="utf-8"))
                 L.televerser(nom, racine, neuve, journal, numeros=ajoutees, creation=False)
+            L.rendre_registres(racine)
+
+        self._travailler(job_id, faire)
+
+    # -------------------------------------------------- refaire une photo
+    def _refaire(self, d):
+        nom = d.get("nom", "")
+        numero = int(d.get("numero") or 0)
+        if not nom or not nom.replace("_", "").replace("-", "").isalnum():
+            return L.json_rep(self, {"erreur": "nom refuse"}, 400)
+        if not 1 <= numero <= 100:
+            return L.json_rep(self, {"erreur": "numero de photo invalide"}, 400)
+
+        c, fiches = L.rest(f"carrousels?nom=eq.{nom}")
+        if c != 200 or not isinstance(fiches, list) or not fiches:
+            return L.json_rep(self, {"erreur": "carrousel introuvable"}, 404)
+        fiche = fiches[0]
+        if not fiche.get("visage"):
+            return L.json_rep(self, {"erreur": "fiche trop ancienne : elle ne contient pas "
+                                               "la description du visage"}, 409)
+
+        job_id = self._ouvrir_job(nom)
+        if not job_id:
+            return
+        L.json_rep(self, {"job": job_id, "nom": nom, "numero": numero})
+
+        def faire(journal):
+            racine = L.preparer_tmp()
+            if _preparer_reprise(nom, fiche, racine) is None:
+                raise RuntimeError("photo 1 introuvable dans le stockage")
+            import carrousel
+            carrousel.refaire(nom, numero, journal=journal)
+            neuve = json.load(open(os.path.join(racine, "gen", nom, "meta.json"),
+                                   encoding="utf-8"))
+            L.televerser(nom, racine, neuve, journal, numeros=[numero], creation=False)
             L.rendre_registres(racine)
 
         self._travailler(job_id, faire)

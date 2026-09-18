@@ -50,10 +50,10 @@ Copier `.env.example` et y mettre sa clé. Le fichier `.env` n'est pas versionn�
 |---|---|---|
 | Photo 1, le hero (texte → image) | `fal-ai/flux-2-pro` | 0,030 $ |
 | Photos 2 à 5 (même visage, image → image) | `fal-ai/flux-2-pro/edit` | 0,045 $ |
-| Contrôle de chaque photo | `openrouter/router/vision` | 0,0005 $ |
+| Contrôle de chaque photo (2 appels) | `openrouter/router/vision` | 0,001 $ |
 
 **0,21 $ le carrousel de 5 photos, environ 80 secondes.** Le contrôle ajoute
-0,003 $ et 13 secondes ; chaque photo qu'il fait refaire coûte 0,045 $ de plus.
+0,006 $ et 25 secondes ; chaque photo qu'il fait refaire coûte 0,045 $ de plus.
 Mesuré sur un profil de 52 ans : trois photos refaites, soit 0,35 $ au total.
 
 Ces deux modèles ont été retenus après un banc d'essai sur 14 modèles
@@ -69,7 +69,7 @@ C'est ce qui transforme une image IA propre en photo qui sort d'un téléphone.
 
 ---
 
-## Photos en plus, et favoris
+## Photos en plus, reprises, et favoris
 
 **« + 5 photos »** sur la fiche d'une personne repart de son visage plutôt que
 d'en inventer un autre : sa description, ses signes particuliers et sa photo 1
@@ -82,6 +82,19 @@ La référence est l'image **brute** de la photo 1, pas celle qui est publiée :
 celle-ci a reçu flou, bruit et double compression, et le modèle d'édition s'en
 servirait pour dessiner un visage un peu plus flou à chaque fois. En ligne, la
 photo brute est donc déposée dans le stockage à la génération.
+
+**La petite flèche ↻**, en haut à droite de chaque photo, refait cette photo-là.
+Même personne et **même décor** — le lieu est déjà consommé dans les registres, et
+c'est lui qui donne sa place à la photo dans le carrousel — mais pose, cadrage,
+angle, lumière et tenue sont retirés au sort, et la pose ratée est exclue du
+tirage : la rejouer à l'identique la raterait encore. Environ 0,05 $, pas de
+confirmation — la flèche est petite, posée sur la photo concernée, et c'est un
+geste de retouche.
+
+La photo 1 se refait depuis elle-même. Elle porte le visage de référence des
+autres : la repasser en text-to-image donnerait un autre visage, qui ne collerait
+plus aux suivantes. Le modèle d'édition, lui, garde les traits et redessine la
+scène.
 
 **L'étoile** met une personne dans l'onglet « Favoris », qui est une catégorie à
 part et non un filtre : on y trouve aussi bien des femmes à poster que des
@@ -206,31 +219,55 @@ et les adverbes. Vérifié sur les 119 textes de la banque.
 
 ## Le contrôle automatique
 
-Chaque photo est relue par un modèle de vision avant d'être gardée, sur l'image
-**brute** — le flou, le bruit et la double compression du post-traitement sont
-ajoutés exprès, et un juge les prendrait pour des défauts. Quatre questions :
-est-ce la même personne que sur la photo 1, l'anatomie est-elle possible, y a-t-il
-un élément qui ne peut pas exister, et la personne fait-elle son âge. Une photo
-recalée est refaite, deux fois au plus, avec la faute constatée réinjectée dans
-le prompt. `ATELIER_CONTROLE=0` désactive tout.
+Chaque photo est relue avant d'être gardée, sur l'image **brute** — le flou, le
+bruit et la double compression du post-traitement sont ajoutés exprès, et un juge
+les prendrait pour des défauts. Ce n'est pas théorique : sur la version dégradée
+d'une photo à trois bras, il ne les voit plus. Quatre questions : est-ce la même
+personne que sur la photo 1, le corps est-il possible, y a-t-il un élément qui ne
+peut pas exister, et la personne fait-elle son âge. Une photo recalée est refaite,
+deux fois au plus, avec la faute constatée réinjectée dans le prompt.
+`ATELIER_CONTROLE=0` désactive tout.
 
-Mesure sur 20 photos déjà générées : 4 recalées, dont 3 vrais défauts (une femme
-de 49 ans au visage de 35, deux visages qui ont dérivé) et zéro faux positif.
+Mesure sur 20 photos déjà générées : zéro faux positif sur le corps, et les vrais
+défauts attrapés — une femme de 49 ans au visage de 35, deux visages qui ont
+dérivé, un double biceps où une **troisième main** tient le téléphone.
 
-**Le juge ne sait pas s'abstenir, alors on l'en empêche.** Sur la photo où le
-sujet est minuscule dans le cadre — une règle du format, pas un accident — il
-répond « ce n'est pas la même personne » avec 90 % de certitude et cite les
-traits qui diffèrent, sur un visage haut de 50 pixels. Lui demander de douter ne
-change rien, sa certitude vaut 90 dans les deux cas. En revanche il *localise*
-très bien. Un verdict qui porte sur le visage déclenche donc un second appel qui
-ne demande que la boîte englobante ; en dessous de 12 % de la hauteur d'image, le
-reproche est écarté. Mesuré : gros plan 30 à 44 %, plan moyen 18 à 23 %, femme au
-bout de la rue 5,9 %. Cette question doit être posée **seule** — noyée dans les
-autres, la même mesure rend 14 % au lieu de 6.
+### Une question par appel
+
+Les trois appels ne sont pas une précaution, ce sont des mesures. Chaque fois
+qu'une question a rejoint les autres dans le même appel, la réponse s'est
+dégradée — et toujours en silence, en répondant « ok ».
+
+| Question | Posée seule | Posée avec les autres |
+|---|---|---|
+| Hauteur du visage, sujet lointain | 6 % | 14 %, au-dessus du seuil |
+| Bras d'un double biceps à trois bras | 3 détections sur 3 | 0 sur 3 |
+
+La deuxième ligne est la plus instructive : il a suffi d'**accompagner** la
+question d'une liste de ce qu'il fallait chercher — bras partant d'un mauvais
+endroit, articulation à l'envers, torse vrillé — pour qu'elle passe de 3/3 à 0/3.
+L'énumération fait comparer l'image à une liste ; son absence oblige à la
+regarder. La consigne sur le corps tient donc en trois lignes, et demande de
+**compter** plutôt que de juger : on agit sur les nombres — plus de deux bras, de
+deux mains, de deux jambes — et pas sur l'avis. Moins de deux n'est jamais une
+faute : un membre sort du cadre à presque chaque photo.
+
+### Le juge ne sait pas s'abstenir
+
+Sur la photo où le sujet est minuscule dans le cadre — une règle du format, pas
+un accident — il répond « ce n'est pas la même personne » avec 90 % de certitude
+et cite les traits qui diffèrent, sur un visage haut de 50 pixels. Lui demander
+de douter ne change rien, sa certitude vaut 90 dans les deux cas. En revanche il
+*localise* très bien. Un verdict qui porte sur le visage déclenche donc un
+troisième appel qui ne demande que la boîte englobante ; sous 12 % de la hauteur
+d'image, le reproche est écarté. Mesuré : gros plan 30 à 44 %, plan moyen 18 à
+23 %, femme au bout de la rue 5,9 %.
 
 **La photo 1 a une exigence de plus** : son visage doit être lisible, puisque les
 quatre autres s'y comparent. Un carrousel dont la photo 1 portait des lunettes
 noires de nuit a vu ses quatre suivantes partir chacune de son côté.
+
+---
 
 ## Limite connue
 

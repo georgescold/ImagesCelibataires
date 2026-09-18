@@ -87,11 +87,10 @@ def _controler(chemin, reference, age, genre, dire, exiger_visage=False):
     """
     if not controle.actif():
         return True, [], {}
-    rapport = controle.inspecter(chemin, reference=reference, genre=genre)
+    ok, soucis, rapport = controle.controler(chemin, reference=reference, age=age, genre=genre)
     if rapport.get("panne"):
         dire(f"    controle indisponible ({rapport['panne'][:70]}), photo gardee")
         return True, [], rapport
-    ok, soucis = controle.verdict(rapport, age, chemin=chemin)
     if ok and exiger_visage:
         pct = rapport.get("visage_pct")
         if pct is None:
@@ -366,8 +365,83 @@ def ajouter(nom, combien=5, journal=None, seed=None, avant=None, depart=None):
     return [s["n"] for s in nouvelles]
 
 
+# --------------------------------------------------- refaire une seule photo
+def refaire(nom, numero, journal=None, seed=None):
+    """Refait la photo `numero` d'un carrousel, a la place de l'ancienne.
+
+    La scene et son lieu sont conserves : ils sont deja consommes dans les
+    registres, et c'est le decor qui donne sa place a la photo dans le
+    carrousel. En revanche la pose, le cadrage, l'angle, la lumiere, la tenue et
+    l'accessoire sont retires — si c'est la pose qui a rate, la rejouer a
+    l'identique la raterait encore.
+
+    La photo 1 se refait depuis elle-meme : c'est elle qui porte le visage de
+    reference des autres, et la repasser en text-to-image donnerait un autre
+    visage, qui ne collerait plus aux quatre suivantes.
+    """
+    dire = journal or (lambda m: print(m, flush=True))
+    fin, raw = f"gen/{nom}", f"gen/{nom}_raw"
+    chemin_meta = f"{fin}/meta.json"
+    if not os.path.exists(chemin_meta):
+        raise SystemExit(f"{chemin_meta} introuvable : ce carrousel n'a pas de fiche a reprendre.")
+    meta = json.load(open(chemin_meta, encoding="utf-8"))
+    if not meta.get("visage"):
+        raise SystemExit("La fiche ne contient pas la description du visage : "
+                         "ce carrousel est trop ancien pour etre refait photo par photo.")
+
+    slides = meta.get("slides") or []
+    ancien = next((s for s in slides if s.get("n") == numero), None)
+    if not ancien or not ancien.get("scene"):
+        raise SystemExit(f"La photo {numero} n'est pas decrite dans la fiche.")
+
+    rnd = random.Random(seed)
+    age = meta.get("age", 45)
+    genre = meta.get("genre", "f")
+    homme = genre == "h"
+    persona = meta.get("persona") if meta.get("persona") in PERSONAS else "discrete_nature"
+
+    # la reference reste la photo 1, sauf quand c'est elle qu'on refait
+    base = 1 if numero != 1 else numero
+    reference = next((p for p in (f"{raw}/{base}.jpg", f"{fin}/{base}.jpg") if os.path.exists(p)), None)
+    if not reference:
+        raise SystemExit(f"La photo {base} est introuvable : rien a partir de quoi refaire.")
+
+    deja = charger_etat()
+    deja.add((ancien["scene"], ancien.get("pose", "")))     # ne pas rejouer la pose ratee
+    plans, deja = tirage(1, seed=seed, deja=deja, scenes=[ancien["scene"]], genre=genre)
+    sauver_etat(deja)
+    x = plans[0]
+    x["decor"] = ancien["lieu"]                             # meme decor, deja consomme
+
+    signes = meta.get("signes") or []
+    rappel = ""
+    if len(signes) >= 2:
+        rappel = ((" He" if homme else " She") + " still has exactly the same two distinguishing"
+                  " features as in the reference photo: " + signes[0] + ", and " + signes[1] +
+                  ". Both must be present and identical here.")
+
+    dire(f"  {meta.get('prenom', nom)} : on refait la photo {numero} [{ancien['scene']}]")
+    os.makedirs(raw, exist_ok=True)
+    rap, n = _slide(numero, x, raw, fin, _description(meta["visage"], homme), rappel,
+                    persona, homme, genre, age, rnd, 0, dire, reference=reference)
+    if not os.path.exists(f"{fin}/{numero}.jpg"):
+        raise SystemExit(f"La photo {numero} n'a pas pu etre refaite.")
+
+    ancien.update({"pose": x["pose"], "prise": x["prise"]})
+    meta["controle"] = [c for c in (meta.get("controle") or []) if c.get("n") != numero] + \
+                       [{"n": numero, "relances": n, "rapport": rap}]
+    meta["refait"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
+    json.dump(meta, open(chemin_meta, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    _bilan([{"n": numero, "relances": n}], dire)
+    dire(f"=> photo {numero} refaite  ~${0.045 * (1 + n):.2f}")
+    return numero
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 2 and sys.argv[1] == "+":
+    if len(sys.argv) > 3 and sys.argv[1] == "=":
+        # python gen/carrousel.py = <nom> <numero>
+        refaire(sys.argv[2], int(sys.argv[3]))
+    elif len(sys.argv) > 2 and sys.argv[1] == "+":
         # python gen/carrousel.py + <nom> [combien]
         ajouter(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 5)
     else:

@@ -66,9 +66,17 @@ def lire_objet(cible):
         return None
 
 
-def ecrire_objet(cible, donnees, ctype="image/jpeg"):
+# Une photo ne pouvait etre ecrite qu'une fois ; depuis qu'on sait en refaire
+# une seule, son adresse ne change pas mais son contenu si, et le CDN de
+# Supabase servait encore l'ancienne. Un parametre ajoute a l'URL ne le
+# contourne pas — mesure faite, ?r=12345 rend un HIT sur la meme entree. On
+# borne donc la duree de cache au lieu d'essayer de la tromper.
+CACHE_PHOTO = "max-age=60"
+
+
+def ecrire_objet(cible, donnees, ctype="image/jpeg", cache=CACHE_PHOTO):
     c, _ = sb(f"/storage/v1/object/{BUCKET}/{cible}", "POST", donnees, ctype,
-              {"x-upsert": "true"})
+              {"x-upsert": "true", "cache-control": cache})
     return c in (200, 201)
 
 
@@ -187,16 +195,21 @@ def televerser(nom, racine, meta, journal, numeros=None, creation=True):
         garder = {int(n) for n in numeros}
         photos = [f for f in photos if int(f[:-4]) in garder]
 
+    rates = []
     for f in photos:
         n = f[:-4]
         brut = open(os.path.join(dossier, f), "rb").read()
-        ecrire_objet(f"{nom}/{f}", brut)
         im = Image.open(io.BytesIO(brut)).convert("RGB")
         im.thumbnail((320, 400), Image.LANCZOS)
         tampon = io.BytesIO()
         im.save(tampon, "JPEG", quality=72, optimize=True)
-        ecrire_objet(f"{nom}/vignettes/{n}.jpg", tampon.getvalue())
-    journal(f"  {len(photos)} photos et vignettes televersees")
+        if not ecrire_objet(f"{nom}/{f}", brut):
+            rates.append(f)
+        elif not ecrire_objet(f"{nom}/vignettes/{n}.jpg", tampon.getvalue()):
+            rates.append(f"vignette {n}")
+    if rates:
+        journal(f"  ECHEC du televersement de : {', '.join(rates)}")
+    journal(f"  {len(photos) - len(rates)} photos et vignettes televersees")
 
     def ecrire(chemin, methode, corps, quoi):
         """Une ecriture ratee doit se voir. Sans ce garde-fou, une contrainte

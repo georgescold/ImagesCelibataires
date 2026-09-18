@@ -370,6 +370,19 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         d = json.loads(self.rfile.read(n) or b"{}")
 
+        if d.get("refaire"):
+            # Une seule photo, a la place de l'ancienne : meme decor, autre pose.
+            nom = d.get("nom", "")
+            numero = int(d.get("numero") or 0)
+            if not NOM_VALIDE.fullmatch(nom or "") or not os.path.isdir(os.path.join("gen", nom)):
+                return self._json({"erreur": "carrousel introuvable dans gen/ "
+                                             "(restaure-le s'il est archivé)"}, 404)
+            if not 1 <= numero <= 100:
+                return self._json({"erreur": "numéro de photo invalide"}, 400)
+            import carrousel
+            job = en_tache(nom, lambda noter: carrousel.refaire(nom, numero, journal=noter))
+            return self._json({"job": job, "nom": nom, "numero": numero})
+
         if d.get("etendre"):
             # Photos de plus pour une personne deja generee : on repart de sa
             # photo 1 et de la description de visage rangee dans son meta.json.
