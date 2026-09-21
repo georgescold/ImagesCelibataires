@@ -91,10 +91,20 @@ tirage : la rejouer à l'identique la raterait encore. Environ 0,05 $, pas de
 confirmation — la flèche est petite, posée sur la photo concernée, et c'est un
 geste de retouche.
 
+L'exclusion de la pose ratée a longtemps été percée. La fiche range la pose sous
+sa forme finale — « phone » devenu « camera » en selfie, texte mis au masculin —
+qui ne correspondait plus au texte de la banque qu'on cherchait à exclure ; et
+quand toutes les poses d'une scène avaient déjà servi, le tirage repartait de la
+banque entière, pose ratée comprise. La flèche retirait ainsi la même pose une fois
+sur cinq pour une femme, deux fois sur cinq pour un homme. Depuis : zéro sur 360
+reprises simulées.
+
 La photo 1 se refait depuis elle-même. Elle porte le visage de référence des
 autres : la repasser en text-to-image donnerait un autre visage, qui ne collerait
 plus aux suivantes. Le modèle d'édition, lui, garde les traits et redessine la
-scène.
+scène. Une fois refaite, sa version brute remplace l'ancienne dans le stockage :
+les lots suivants repartaient sinon d'un visage que la bibliothèque ne montrait
+plus.
 
 **L'étoile** met une personne dans l'onglet « Favoris », qui est une catégorie à
 part et non un filtre : on y trouve aussi bien des femmes à poster que des
@@ -108,8 +118,9 @@ la fiche.
 ## Plusieurs générations à la fois, suivies de partout
 
 Le bouton « Générer le carrousel » ne se bloque plus pendant une génération : on
-peut en lancer une deuxième, une troisième, ou un « + 5 photos » sur quelqu'un
-d'autre, et elles tournent ensemble. Le panneau **« Générations en cours »**, en
+peut en lancer une deuxième, une troisième, un « + 5 photos » ou des « ↻ » sur
+n'importe qui — y compris sur une personne dont un lot tourne déjà — et elles
+tournent ensemble. Le panneau **« Générations en cours »**, en
 haut de page, les montre toutes **d'où qu'elles viennent** : lancée sur le
 téléphone, une génération apparaît sur l'iPad avec son pourcentage et son étape
 (« Photo 3 terminée », « Photo 2 refaite : … »), et chaque appareil voit son
@@ -137,10 +148,15 @@ Ce qui rend le parallélisme sûr :
   passaient toutes deux le test « ce dossier n'existe pas », puisqu'il n'existe
   qu'à la fin ; les générations en cours comptent désormais comme des noms pris,
   et le choix se fait sous verrou ;
-- **une personne ne subit qu'une génération à la fois.** Deux « + 5 photos »
-  simultanés sur la même femme numéroteraient à partir du même numéro et
-  s'écraseraient l'un l'autre : le second est refusé, comme une reprise de photo
-  pendant un lot. Le refus s'affiche sous la photo touchée, pas en haut de page.
+- **plusieurs générations peuvent viser la même personne.** Deux « + 5 photos »
+  lancés ensemble sur la même femme compteraient tous deux ses photos et
+  écriraient 6-10 l'un sur l'autre : chaque lot se réserve donc ses numéros au
+  lancement, sous verrou — le premier reçoit 6-10, le second 11-15. Et chaque
+  génération relit la fiche au moment de l'écrire, sous verrou, pour n'y remplacer
+  que ses propres photos : réécrite avec la copie lue au départ, elle effaçait ce
+  que les autres venaient d'y ajouter. Vérifié en local et en ligne : deux lots et
+  trois reprises lancés au même instant sur la même personne donnent une fiche
+  complète de 11 photos, où seules les poses refaites ont changé.
 
 ---
 

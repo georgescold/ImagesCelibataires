@@ -24,6 +24,11 @@ VERROU = threading.Lock()
 # poses et de lieux, et pourraient tirer le meme prenom : le tirage se fait donc
 # un a la fois — une fraction de seconde, pas toute la generation.
 VERROU_TIRAGE = threading.Lock()
+# Plusieurs generations peuvent aussi viser la MEME personne : un lot de photos
+# pendant qu'on refait sa photo 3, deux fleches sur deux de ses photos. Chacune
+# relit puis reecrit sa fiche (meta.json) sous ce verrou, au lieu d'ecraser les
+# ajouts des autres avec la copie lue au depart.
+VERROU_FICHE = threading.Lock()
 # une generation finie reste visible ce temps-la dans la liste, pour qu'on voie
 # son issue au lieu de la voir disparaitre
 RECENTE = 120
@@ -79,6 +84,18 @@ def sauver_favoris(noms):
 
 
 # --------------------------------------------------------------- librairie
+def _lire_meta(p):
+    """Une generation peut etre en train de reecrire ce meta.json pendant qu'un
+    autre appareil recharge la bibliotheque : on le relit un instant plus tard
+    plutot que de faire echouer toute la liste sur un fichier tronque."""
+    for _ in range(10):
+        try:
+            return json.load(open(p, encoding="utf-8"))
+        except (ValueError, OSError):
+            time.sleep(0.05)
+    return None
+
+
 def dossiers(archivees=False):
     """Carrousels du disque, du plus recent au plus ancien.
     `archivees` bascule entre le dossier de travail et gen/_archives."""
@@ -99,9 +116,8 @@ def dossiers(archivees=False):
         if not photos:
             continue
         meta_p = os.path.join(rep, "meta.json")
-        if os.path.exists(meta_p):
-            meta = json.load(open(meta_p, encoding="utf-8"))
-        else:
+        meta = _lire_meta(meta_p) if os.path.exists(meta_p) else None
+        if meta is None:
             meta = retro_meta(nom, len(photos))
         meta["nom"] = nom
         meta["photos"] = photos
@@ -187,12 +203,13 @@ def lancer(job_id, travail):
         j["maj"], j["maj_t"] = _horodatage(), time.time()
 
 
-def _nouveau_job(nom, type_, total, libelle):
-    """Inscrit un job. A appeler SOUS VERROU : c'est ce qui rend atomique la
-    verification « rien ne tourne deja sur ce nom » suivie de l'inscription."""
+def _nouveau_job(nom, type_, total, libelle, numeros=None):
+    """Inscrit un job. A appeler SOUS VERROU : c'est ce qui rend atomique le
+    choix d'un nom ou de numeros libres suivi de leur reservation.
+    `numeros` : les numeros de photos que ce job s'est reserves."""
     job_id = uuid.uuid4().hex[:10]
     JOBS[job_id] = {"id": job_id, "etat": "en cours", "lignes": [], "nom": nom, "erreur": None,
-                    "type": type_, "total": total, "libelle": libelle,
+                    "type": type_, "total": total, "libelle": libelle, "numeros": numeros,
                     "cree": _horodatage(), "maj": _horodatage(), "maj_t": time.time()}
     return job_id
 
@@ -202,6 +219,19 @@ def _actifs():
     return {j["nom"] for j in JOBS.values() if j["etat"] == "en cours"}
 
 
+def _prochain_numero(nom):
+    """Premier numero libre pour un lot de photos en plus. A appeler SOUS VERROU.
+    Compter les photos du dossier ne suffit pas : deux lots lances ensemble sur
+    la meme personne les compteraient tous deux et ecriraient l'un sur l'autre.
+    Les numeros que les lots en cours se sont reserves comptent donc aussi."""
+    rep = os.path.join("gen", nom)
+    pris = [int(f[:-4]) for f in os.listdir(rep) if re.fullmatch(r"\d+\.jpg", f)]
+    for j in JOBS.values():
+        if j["nom"] == nom and j["etat"] == "en cours":
+            pris += j.get("numeros") or []
+    return max(pris, default=0) + 1
+
+
 def _demarrer(job_id, travail):
     threading.Thread(target=lancer, args=(job_id, travail), daemon=True).start()
     return job_id
@@ -209,14 +239,8 @@ def _demarrer(job_id, travail):
 
 def _qui(nom):
     """« Prenom, age ans » pour les libelles, depuis la fiche du carrousel."""
-    try:
-        m = json.load(open(os.path.join("gen", nom, "meta.json"), encoding="utf-8"))
-        return f"{m.get('prenom') or nom}, {m.get('age')} ans"
-    except (OSError, ValueError):
-        return nom
-
-
-DEJA_EN_COURS = "une génération est déjà en cours pour cette personne"
+    m = _lire_meta(os.path.join("gen", nom, "meta.json"))
+    return f"{m.get('prenom') or nom}, {m.get('age')} ans" if m else nom
 
 
 # --------------------------------------------------------------- HTTP
@@ -454,12 +478,12 @@ class H(BaseHTTPRequestHandler):
             if not 1 <= numero <= 100:
                 return self._json({"erreur": "numéro de photo invalide"}, 400)
             import carrousel
+            qui = _qui(nom)
             with VERROU:
-                if nom in _actifs():
-                    return self._json({"erreur": DEJA_EN_COURS}, 409)
-                job = _nouveau_job(nom, "reprise", 1, f"{_qui(nom)} · photo {numero} refaite")
+                job = _nouveau_job(nom, "reprise", 1, f"{qui} · photo {numero} refaite")
             _demarrer(job, lambda noter: carrousel.refaire(
-                nom, numero, journal=noter, tirage_exclusif=lambda: VERROU_TIRAGE))
+                nom, numero, journal=noter, tirage_exclusif=lambda: VERROU_TIRAGE,
+                fiche_exclusive=lambda: VERROU_FICHE))
             return self._json({"job": job, "nom": nom, "numero": numero})
 
         if d.get("etendre"):
@@ -476,13 +500,15 @@ class H(BaseHTTPRequestHandler):
                                              "(restaure-le s'il est archivé)"}, 404)
             combien = max(1, min(10, int(d.get("combien") or LOT_SUPPLEMENTAIRE)))
             import carrousel
+            qui = _qui(nom)
             with VERROU:
-                if nom in _actifs():
-                    return self._json({"erreur": DEJA_EN_COURS}, 409)
+                depart = _prochain_numero(nom)
                 job = _nouveau_job(nom, "extension", combien,
-                                   f"{_qui(nom)} · {combien} photo{'s' if combien > 1 else ''} de plus")
+                                   f"{qui} · {combien} photo{'s' if combien > 1 else ''} de plus",
+                                   numeros=list(range(depart, depart + combien)))
             _demarrer(job, lambda noter: carrousel.ajouter(
-                nom, combien, journal=noter, tirage_exclusif=lambda: VERROU_TIRAGE))
+                nom, combien, journal=noter, depart=depart, tirage_exclusif=lambda: VERROU_TIRAGE,
+                fiche_exclusive=lambda: VERROU_FICHE))
             return self._json({"job": job, "nom": nom, "combien": combien})
 
         age = max(30, min(70, int(d.get("age", 45))))

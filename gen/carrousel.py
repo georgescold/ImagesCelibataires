@@ -304,7 +304,7 @@ def _bilan(controles, dire):
 
 # --------------------------------------------------- photos supplementaires
 def ajouter(nom, combien=5, journal=None, seed=None, avant=None, depart=None,
-            relances_jusqua=None, tirage_exclusif=nullcontext):
+            relances_jusqua=None, tirage_exclusif=nullcontext, fiche_exclusive=nullcontext):
     """Ajoute des photos a un carrousel deja genere, a partir de SON visage.
 
     On ne regenere pas la personne : sa description de visage, ses signes
@@ -316,13 +316,24 @@ def ajouter(nom, combien=5, journal=None, seed=None, avant=None, depart=None,
     des photos a faire. En ligne, une fonction Vercel est tuee a 300 s et tout
     ce qu'elle n'a pas encore televerse serait perdu ; mieux vaut rendre trois
     photos que zero.
+
+    `depart` : premier numero a utiliser. L'appelant le reserve au lancement :
+    deux lots lances ensemble sur la meme personne recoivent 6-10 et 11-15, au
+    lieu de compter tous deux les photos du dossier et d'ecrire 6-10 l'un sur
+    l'autre.
+
+    `fiche_exclusive` : contexte dans lequel la fiche est relue puis reecrite.
+    Une autre generation sur la meme personne a pu l'ecrire entre-temps.
+
+    Retourne les fiches des photos ajoutees (n, scene, lieu, pose, texte...).
     """
     dire = journal or (lambda m: print(m, flush=True))
     fin, raw = f"gen/{nom}", f"gen/{nom}_raw"
     chemin_meta = f"{fin}/meta.json"
     if not os.path.exists(chemin_meta):
         raise SystemExit(f"{chemin_meta} introuvable : ce carrousel n'a pas de fiche a reprendre.")
-    meta = json.load(open(chemin_meta, encoding="utf-8"))
+    with fiche_exclusive():          # une autre generation peut etre en train de l'ecrire
+        meta = json.load(open(chemin_meta, encoding="utf-8"))
     if not meta.get("visage"):
         raise SystemExit("La fiche ne contient pas la description du visage : "
                          "ce carrousel est trop ancien pour etre etendu.")
@@ -389,19 +400,25 @@ def ajouter(nom, combien=5, journal=None, seed=None, avant=None, depart=None,
                           "texte": textes[(i - 1) % len(textes)] if textes else None})
         controles.append({"n": i, "relances": n, "rapport": rap})
 
-    meta["slides"] = (meta.get("slides") or []) + nouvelles
-    meta["controle"] = (meta.get("controle") or []) + controles
-    meta["etendu"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
-    json.dump(meta, open(chemin_meta, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    with fiche_exclusive():
+        # relue maintenant, pas reprise du debut : un autre lot ou une reprise sur
+        # la meme personne l'a peut-etre reecrite pendant qu'on generait
+        meta = json.load(open(chemin_meta, encoding="utf-8"))
+        faits = {s["n"] for s in nouvelles}
+        meta["slides"] = sorted([s for s in (meta.get("slides") or []) if s.get("n") not in faits]
+                                + nouvelles, key=lambda s: s.get("n") or 0)
+        meta["controle"] = [c for c in (meta.get("controle") or []) if c.get("n") not in faits] + controles
+        meta["etendu"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
+        json.dump(meta, open(chemin_meta, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     _bilan(controles, dire)
     dire(f"=> {len(nouvelles)} photo(s) ajoutée(s) à {fin}  "
          f"~${0.045 * len(nouvelles):.2f}")
-    return [s["n"] for s in nouvelles]
+    return nouvelles
 
 
 # --------------------------------------------------- refaire une seule photo
 def refaire(nom, numero, journal=None, seed=None, relances_jusqua=None,
-            tirage_exclusif=nullcontext):
+            tirage_exclusif=nullcontext, fiche_exclusive=nullcontext):
     """Refait la photo `numero` d'un carrousel, a la place de l'ancienne.
 
     La scene et son lieu sont conserves : ils sont deja consommes dans les
@@ -413,13 +430,16 @@ def refaire(nom, numero, journal=None, seed=None, relances_jusqua=None,
     La photo 1 se refait depuis elle-meme : c'est elle qui porte le visage de
     reference des autres, et la repasser en text-to-image donnerait un autre
     visage, qui ne collerait plus aux quatre suivantes.
+
+    Retourne la fiche de la photo refaite.
     """
     dire = journal or (lambda m: print(m, flush=True))
     fin, raw = f"gen/{nom}", f"gen/{nom}_raw"
     chemin_meta = f"{fin}/meta.json"
     if not os.path.exists(chemin_meta):
         raise SystemExit(f"{chemin_meta} introuvable : ce carrousel n'a pas de fiche a reprendre.")
-    meta = json.load(open(chemin_meta, encoding="utf-8"))
+    with fiche_exclusive():          # cf. ajouter()
+        meta = json.load(open(chemin_meta, encoding="utf-8"))
     if not meta.get("visage"):
         raise SystemExit("La fiche ne contient pas la description du visage : "
                          "ce carrousel est trop ancien pour etre refait photo par photo.")
@@ -443,8 +463,9 @@ def refaire(nom, numero, journal=None, seed=None, relances_jusqua=None,
 
     with tirage_exclusif():                       # cf. build()
         deja = charger_etat()
-        deja.add((ancien["scene"], ancien.get("pose", "")))     # ne pas rejouer la pose ratee
-        plans, deja = tirage(1, seed=seed, deja=deja, scenes=[ancien["scene"]], genre=genre)
+        # la pose ratee n'est jamais rejouee, meme scene epuisee (cf. tirage)
+        plans, deja = tirage(1, seed=seed, deja=deja, scenes=[ancien["scene"]], genre=genre,
+                             exclure={ancien.get("pose", "")})
         sauver_etat(deja)
     x = plans[0]
     x["decor"] = ancien["lieu"]                             # meme decor, deja consomme
@@ -464,14 +485,20 @@ def refaire(nom, numero, journal=None, seed=None, relances_jusqua=None,
     if not os.path.exists(f"{fin}/{numero}.jpg"):
         raise SystemExit(f"La photo {numero} n'a pas pu etre refaite.")
 
-    ancien.update({"pose": x["pose"], "prise": x["prise"]})
-    meta["controle"] = [c for c in (meta.get("controle") or []) if c.get("n") != numero] + \
-                       [{"n": numero, "relances": n, "rapport": rap}]
-    meta["refait"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
-    json.dump(meta, open(chemin_meta, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    with fiche_exclusive():                       # cf. ajouter() : relue, pas reprise du debut
+        meta = json.load(open(chemin_meta, encoding="utf-8"))
+        slide = next((s for s in meta.get("slides") or [] if s.get("n") == numero), None)
+        if slide is None:                         # ne devrait pas arriver : on la remet
+            slide = dict(ancien)
+            meta["slides"] = sorted((meta.get("slides") or []) + [slide], key=lambda s: s.get("n") or 0)
+        slide.update({"pose": x["pose"], "prise": x["prise"]})
+        meta["controle"] = [c for c in (meta.get("controle") or []) if c.get("n") != numero] + \
+                           [{"n": numero, "relances": n, "rapport": rap}]
+        meta["refait"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
+        json.dump(meta, open(chemin_meta, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     _bilan([{"n": numero, "relances": n}], dire)
     dire(f"=> photo {numero} refaite  ~${0.045 * (1 + n):.2f}")
-    return numero
+    return slide
 
 
 if __name__ == "__main__":

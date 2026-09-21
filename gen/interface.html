@@ -542,7 +542,7 @@ const VIDE = {
 let LOT = 5;                       // photos ajoutees par le bouton « plus de photos »
 const PAR_PAGE = 6;
 let affichees = PAR_PAGE;
-// nom -> {texte, rate, encours} : l'avancement de l'ajout de photos survit au
+// nom -> {texte, rate} : l'avancement de l'ajout de photos survit au
 // redessin de la liste, et reste affiche apres coup comme recu de l'operation
 const EXT = {};
 
@@ -593,7 +593,7 @@ function carte(f){
         aria-label="${f.favori ? 'Retirer des favoris' : 'Mettre en favori'}">${f.favori ? '★' : '☆'}</button>
       <div class="femme-actions">
         <button class="bouton plus minuscule" data-plus="${f.nom}"
-          data-qui="${echappe(f.prenom || f.nom)}" ${f.extensible && !(EXT[f.nom] || {}).encours ? '' : 'disabled'}
+          data-qui="${echappe(f.prenom || f.nom)}" ${f.extensible ? '' : 'disabled'}
           title="${f.extensible
             ? `${LOT} photos de plus de la même personne, environ ${(LOT * 0.045).toFixed(2).replace('.', ',')} $`
             : 'Carrousel trop ancien : sa fiche ne contient pas la description du visage'}"
@@ -918,17 +918,24 @@ async function refaireUne(bouton){
 // ------------------------------------ photos supplémentaires d'une personne
 // L'avancement s'affiche dans la carte de la personne concernée, pas dans le
 // journal du haut : on peut en lancer plusieurs et continuer à naviguer.
+// Plusieurs lots peuvent tourner sur la même personne : le serveur réserve à
+// chacun ses numéros (6-10, 11-15…). Le bouton ne se bloque que le temps du
+// lancement ; la zone d'avancement de la carte suit le dernier lot lancé, et le
+// panneau « Générations en cours » les montre tous.
+const EXT_DERNIER = {};                // nom -> jeton du dernier lot lancé
+
 async function etendre(bouton){
   const nom = bouton.dataset.plus, qui = bouton.dataset.qui;
-  if((EXT[nom] || {}).encours) return;
   const prix = (LOT * 0.045).toFixed(2).replace('.', ',');
   if(!confirm(`Générer ${LOT} photos de plus de ${qui} ?
 
 Même visage, nouveaux lieux, et les mêmes textes qui reprennent dans l'ordre : le lot se poste tel quel comme un second carrousel. Environ ${prix} $.`)) return;
 
   bouton.disabled = true;
-  const ecrire = (texte, rate, encours = true) => {
-    EXT[nom] = {texte, rate, encours};
+  const moi = EXT_DERNIER[nom] = Symbol();
+  const ecrire = (texte, rate) => {
+    if(EXT_DERNIER[nom] !== moi) return;             // un lot plus récent a la main
+    EXT[nom] = {texte, rate};
     const z = document.getElementById('ext-' + nom);   // re-cherche : la liste se redessine
     if(!z) return;
     z.hidden = false;
@@ -938,14 +945,19 @@ Même visage, nouveaux lieux, et les mêmes textes qui reprennent dans l'ordre :
   };
   ecrire('Démarrage…');
 
-  const r = await fetch('/api/generer', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({nom, combien: LOT, etendre: true})
-  });
-  const {job, erreur} = await r.json();
+  let job, erreur;
+  try{
+    const r = await fetch('/api/generer', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({nom, combien: LOT, etendre: true})
+    });
+    ({job, erreur} = await r.json());
+  }catch(err){
+    erreur = 'La génération n’a pas démarré : ' + err;
+  }
+  bouton.disabled = false;             // on peut en relancer un autre aussitôt
   if(erreur || !job){
-    bouton.disabled = false;
-    ecrire(erreur || 'La génération n’a pas démarré.', true, false);
+    ecrire(erreur || 'La génération n’a pas démarré.', true);
     return;
   }
   suivreGenerations();
@@ -953,10 +965,10 @@ Même visage, nouveaux lieux, et les mêmes textes qui reprennent dans l'ordre :
   const t = setInterval(async () => {
     const j = await (await fetch('/api/job/' + job)).json();
     const fini = j.etat === 'fini' || j.etat === 'erreur';
-    ecrire((j.lignes || []).join('\n') || 'Génération en cours…', j.etat === 'erreur', !fini);
+    ecrire((j.lignes || []).join('\n') || 'Génération en cours…', j.etat === 'erreur');
     if(fini){
       clearInterval(t);
-      if(j.etat === 'erreur') ecrire(j.erreur || 'Échec.', true, false);
+      if(j.etat === 'erreur') ecrire(j.erreur || 'Échec.', true);
       charger();
       solde();
     }

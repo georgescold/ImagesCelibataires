@@ -19,7 +19,7 @@ ou refaire une de ses photos est une generation comme une autre, meme /tmp,
 meme televersement. Le corps de la requete porte `etendre: true` ou
 `refaire: true` pour demander l'une des deux autres.
 """
-import json, os, re, time, traceback
+import json, os, re, threading, time, traceback
 from http.server import BaseHTTPRequestHandler
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
@@ -49,13 +49,18 @@ def _maj(job_id, **champs):
 # Au-dela, un job « en cours » est mort (cf. api/job.py) : il ne bloque plus rien.
 VIVANT = 330
 
-# Verrou tenu entre « ce nom est libre » et l'inscription du job qui le prend.
+# Verrou en base tenu entre « ce nom est libre » (ou « ces numeros sont libres »)
+# et l'inscription du job qui les prend.
 LANCEMENT = "lancement"
 
+# Une meme instance peut servir plusieurs requetes a la fois, qui partagent alors
+# /tmp/atelier : la fiche d'une personne (meta.json) y est relue puis reecrite
+# sous ce verrou, et non ecrasee par la copie qu'une autre avait lue au depart.
+FICHES_TMP = threading.Lock()
 
-def _jobs_actifs(nom=None):
-    filtre = f"&nom=eq.{nom}" if nom else ""
-    c, d = L.rest(f"jobs?etat=eq.en%20cours&cree=gt.{L.horodatage_url(-VIVANT)}{filtre}&select=nom")
+
+def _jobs_actifs():
+    c, d = L.rest(f"jobs?etat=eq.en%20cours&cree=gt.{L.horodatage_url(-VIVANT)}&select=nom")
     return {x["nom"] for x in d} if c == 200 and isinstance(d, list) else set()
 
 
@@ -72,21 +77,25 @@ def _nom_libre(base):
     return nom
 
 
-def _deja_en_cours(h, nom):
-    """Refuse une seconde generation sur la meme personne : deux « + 5 photos »
-    simultanes numeroteraient toutes deux a partir du meme numero, et chacun
-    ecraserait les photos de l'autre. Seul un autre appareil peut y arriver :
-    celui qui lance desactive deja son propre bouton."""
-    if _jobs_actifs(nom):
-        L.json_rep(h, {"erreur": "une génération est déjà en cours pour cette personne"}, 409)
-        return True
-    return False
+def _prochain_numero(nom):
+    """Premier numero libre pour un lot de photos en plus. A appeler sous le
+    verrou LANCEMENT. Compter les photos en base ne suffit pas : deux lots lances
+    ensemble sur la meme personne les compteraient tous deux et ecriraient 6-10
+    l'un sur l'autre. Les numeros que se sont reserves les lots encore en cours
+    comptent donc aussi : le second recoit 11-15."""
+    c, ph = L.rest(f"photos?carrousel=eq.{nom}&select=numero&order=numero.desc&limit=1")
+    dernier = ph[0]["numero"] if c == 200 and isinstance(ph, list) and ph else 0
+    c, js = L.rest(f"jobs?nom=eq.{nom}&etat=eq.en%20cours&type=eq.extension"
+                   f"&cree=gt.{L.horodatage_url(-VIVANT)}&select=depart,total")
+    for j in js if c == 200 and isinstance(js, list) else []:
+        if j.get("depart"):
+            dernier = max(dernier, j["depart"] + (j.get("total") or 1) - 1)
+    return dernier + 1
 
 
 def _preparer_reprise(nom, fiche, racine):
     """Recree dans /tmp ce dont la reprise d'un carrousel a besoin : sa fiche en
-    meta.json et la photo 1, qui sert de reference. Rend le numero a partir
-    duquel numeroter d'eventuelles nouvelles photos, ou None si la photo 1 est
+    meta.json et la photo 1, qui sert de reference. Rend False si la photo 1 est
     introuvable dans le stockage.
 
     Partage par l'extension et par la reprise d'une photo : les deux repartent
@@ -99,19 +108,17 @@ def _preparer_reprise(nom, fiche, racine):
     meta = {k: fiche.get(k) for k in
             ("nom", "genre", "prenom", "age", "metier", "recherche", "persona",
              "textes", "visage", "signes", "slides")}
-    json.dump(meta, open(os.path.join(dossier, "meta.json"), "w", encoding="utf-8"),
-              ensure_ascii=False, indent=1)
+    with FICHES_TMP:
+        json.dump(meta, open(os.path.join(dossier, "meta.json"), "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=1)
 
     # la photo 1 d'avant post-traitement si elle existe, sinon celle qui est
     # publiee — les carrousels d'avant cette version n'ont que la seconde
     donnees = L.lire_objet(f"{nom}/brut/1.jpg") or L.lire_objet(f"{nom}/1.jpg")
     if not donnees:
-        return None
+        return False
     open(os.path.join(brut, "1.jpg"), "wb").write(donnees)
-
-    c, ph = L.rest(f"photos?carrousel=eq.{nom}&select=numero&order=numero.desc&limit=1")
-    dernier = ph[0]["numero"] if c == 200 and isinstance(ph, list) and ph else 0
-    return dernier + 1
+    return True
 
 
 class handler(BaseHTTPRequestHandler):
@@ -167,12 +174,14 @@ class handler(BaseHTTPRequestHandler):
         if not fiche.get("visage"):
             return L.json_rep(self, {"erreur": "fiche trop ancienne : elle ne contient pas "
                                                "la description du visage"}, 409)
-        with L.verrou(LANCEMENT):                # cf. _creer
-            if _deja_en_cours(self, nom):
-                return
+        # Rien n'empeche un second lot sur la meme personne pendant que le premier
+        # tourne : chacun se reserve ses numeros, sous verrou (cf. _prochain_numero).
+        with L.verrou(LANCEMENT):
+            depart = _prochain_numero(nom)
             job_id = self._ouvrir_job(nom, "extension", combien,
                                       f"{fiche.get('prenom') or nom}, {fiche.get('age')} ans · "
-                                      f"{combien} photo{'s' if combien > 1 else ''} de plus")
+                                      f"{combien} photo{'s' if combien > 1 else ''} de plus",
+                                      depart=depart)
         if not job_id:
             return
         L.json_rep(self, {"job": job_id, "nom": nom, "combien": combien})
@@ -180,19 +189,20 @@ class handler(BaseHTTPRequestHandler):
         def faire(journal):
             debut = time.time()
             racine = L.preparer_tmp()
-            depart = _preparer_reprise(nom, fiche, racine)
-            if depart is None:
+            if not _preparer_reprise(nom, fiche, racine):
                 raise RuntimeError("photo 1 introuvable dans le stockage")
             import carrousel
-            ajoutees = carrousel.ajouter(nom, combien, journal=journal, depart=depart,
-                                         avant=debut + BUDGET,
-                                         relances_jusqua=debut + RELANCES_JUSQUA,
-                                         tirage_exclusif=lambda: L.registres(
-                                             racine, L.REGISTRES_TIRAGE, "tirage"))
-            if ajoutees:
-                neuve = json.load(open(os.path.join(racine, "gen", nom, "meta.json"),
-                                       encoding="utf-8"))
-                L.televerser(nom, racine, neuve, journal, numeros=ajoutees, creation=False)
+            nouvelles = carrousel.ajouter(nom, combien, journal=journal, depart=depart,
+                                          avant=debut + BUDGET,
+                                          relances_jusqua=debut + RELANCES_JUSQUA,
+                                          tirage_exclusif=lambda: L.registres(
+                                              racine, L.REGISTRES_TIRAGE, "tirage"),
+                                          fiche_exclusive=lambda: FICHES_TMP)
+            if nouvelles:
+                # les fiches des photos viennent du retour d'ajouter(), pas d'une
+                # relecture de meta.json, qu'une autre requete a pu reecrire depuis
+                L.televerser(nom, racine, dict(fiche, slides=nouvelles), journal,
+                             numeros=[s["n"] for s in nouvelles], creation=False)
 
         self._travailler(job_id, faire)
 
@@ -213,12 +223,9 @@ class handler(BaseHTTPRequestHandler):
             return L.json_rep(self, {"erreur": "fiche trop ancienne : elle ne contient pas "
                                                "la description du visage"}, 409)
 
-        with L.verrou(LANCEMENT):                # cf. _creer
-            if _deja_en_cours(self, nom):
-                return
-            job_id = self._ouvrir_job(nom, "reprise", 1,
-                                      f"{fiche.get('prenom') or nom}, {fiche.get('age')} ans · "
-                                      f"photo {numero} refaite")
+        job_id = self._ouvrir_job(nom, "reprise", 1,
+                                  f"{fiche.get('prenom') or nom}, {fiche.get('age')} ans · "
+                                  f"photo {numero} refaite")
         if not job_id:
             return
         L.json_rep(self, {"job": job_id, "nom": nom, "numero": numero})
@@ -226,25 +233,29 @@ class handler(BaseHTTPRequestHandler):
         def faire(journal):
             debut = time.time()
             racine = L.preparer_tmp()
-            if _preparer_reprise(nom, fiche, racine) is None:
+            if not _preparer_reprise(nom, fiche, racine):
                 raise RuntimeError("photo 1 introuvable dans le stockage")
             import carrousel
-            carrousel.refaire(nom, numero, journal=journal,
-                              relances_jusqua=debut + RELANCES_JUSQUA,
-                              tirage_exclusif=lambda: L.registres(racine, L.REGISTRES_TIRAGE, "tirage"))
-            neuve = json.load(open(os.path.join(racine, "gen", nom, "meta.json"),
-                                   encoding="utf-8"))
-            L.televerser(nom, racine, neuve, journal, numeros=[numero], creation=False)
+            refaite = carrousel.refaire(nom, numero, journal=journal,
+                                        relances_jusqua=debut + RELANCES_JUSQUA,
+                                        tirage_exclusif=lambda: L.registres(
+                                            racine, L.REGISTRES_TIRAGE, "tirage"),
+                                        fiche_exclusive=lambda: FICHES_TMP)
+            L.televerser(nom, racine, dict(fiche, slides=[refaite]), journal,
+                         numeros=[numero], creation=False)
 
         self._travailler(job_id, faire)
 
     # ------------------------------------------------------------------ commun
-    def _ouvrir_job(self, nom, type_, total, libelle):
+    def _ouvrir_job(self, nom, type_, total, libelle, depart=None):
         """`type_`, `total` et `libelle` servent a l'affichage des generations en
-        cours sur tous les appareils : quoi, pour qui, et combien de photos."""
-        c, j = L.rest("jobs", "POST", {"nom": nom, "etat": "en cours", "lignes": [],
-                                       "type": type_, "total": total, "libelle": libelle},
-                      prefer="return=representation")
+        cours sur tous les appareils : quoi, pour qui, et combien de photos.
+        `depart` : premier des numeros de photos reserves par un lot."""
+        ligne = {"nom": nom, "etat": "en cours", "lignes": [],
+                 "type": type_, "total": total, "libelle": libelle}
+        if depart is not None:
+            ligne["depart"] = depart
+        c, j = L.rest("jobs", "POST", ligne, prefer="return=representation")
         job_id = j[0]["id"] if c in (200, 201) and isinstance(j, list) and j else None
         if not job_id:
             L.json_rep(self, {"erreur": f"job : {c} {j}"}, 500)

@@ -304,21 +304,36 @@ def televerser(nom, racine, meta, journal, numeros=None, creation=True):
             journal(f"  ECHEC {quoi} : {c} {str(r)[:200]}")
         return c in (200, 201, 204)
 
+    # la photo 1 AVANT post-traitement : c'est elle qui servira de reference si
+    # on ajoute des photos plus tard. Sans elle, l'extension repartirait de
+    # l'image floutee, bruitee et deux fois recompressee. Renvoyee aussi quand
+    # c'est la photo 1 qu'on vient de refaire : sinon les lots suivants
+    # repartaient de l'ancien visage, que la bibliotheque ne montre plus.
+    brute = os.path.join(racine, "gen", nom + "_raw", "1.jpg")
+    if (creation or 1 in {int(f[:-4]) for f in photos}) and os.path.exists(brute):
+        ecrire_objet(f"{nom}/brut/1.jpg", open(brute, "rb").read())
+
     if creation:
-        # la photo 1 AVANT post-traitement : c'est elle qui servira de reference
-        # si on ajoute des photos plus tard. Sans elle, l'extension repartirait
-        # de l'image floutee, bruitee et deux fois recompressee.
-        brute = os.path.join(racine, "gen", nom + "_raw", "1.jpg")
-        if os.path.exists(brute):
-            ecrire_objet(f"{nom}/brut/1.jpg", open(brute, "rb").read())
         fiche = {k: meta.get(k) for k in
                  ("nom", "genre", "prenom", "age", "metier", "recherche", "persona",
                   "textes", "visage", "signes", "slides")}
         fiche["statut"] = "a_poster"
         ecrire("carrousels?on_conflict=nom", "POST", fiche, "fiche")
     else:
-        ecrire(f"carrousels?nom=eq.{nom}", "PATCH", {"slides": meta.get("slides", [])},
-               "slides de la fiche")
+        # La fiche en base a pu changer depuis notre lancement : un autre lot, une
+        # autre reprise sur la meme personne, peut-etre dans une autre instance.
+        # On la relit et on n'y remplace QUE nos photos, sous verrou — renvoyer
+        # la copie lue au depart effacerait ce que les autres y ont ajoute.
+        faites = {int(f[:-4]) for f in photos}
+        miennes = [s for s in meta.get("slides", []) if s.get("n") in faites]
+        with verrou(f"fiche-{nom}"):
+            c, f = rest(f"carrousels?nom=eq.{nom}&select=slides")
+            if c == 200 and isinstance(f, list) and f:
+                fusion = sorted([s for s in (f[0].get("slides") or []) if s.get("n") not in faites]
+                                + miennes, key=lambda s: s.get("n") or 0)
+                ecrire(f"carrousels?nom=eq.{nom}", "PATCH", {"slides": fusion}, "slides de la fiche")
+            else:
+                journal(f"  ECHEC relecture de la fiche : {c} {str(f)[:160]}")
 
     lignes = []
     for f in photos:

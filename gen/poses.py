@@ -269,8 +269,16 @@ def regard(pose):
     return "ailleurs" if any(k in pose for k in _AILLEURS) else "camera"
 
 
-def tirage(n=5, seed=None, deja=None, scenes=None, genre="f"):
-    """n combinaisons toutes differentes. `deja` = set de (scene, pose) deja utilises."""
+def tirage(n=5, seed=None, deja=None, scenes=None, genre="f", exclure=None):
+    """n combinaisons toutes differentes. `deja` = set de (scene, pose) deja utilises.
+
+    `exclure` : poses a ne jamais rejouer, sous la forme ou la fiche les range
+    (« phone » devenu « camera » en selfie, texte mis au masculin) — celle d'une
+    photo qu'on refait parce qu'elle a rate. Passer par `deja` ne suffisait pas :
+    cette forme ne correspond plus au texte de la banque, et quand toutes les
+    poses d'une scene ont servi, le repli remet la banque entiere en jeu.
+    Mesure avant : la fleche ↻ retirait la meme pose une fois sur cinq pour une
+    femme, deux sur cinq pour un homme."""
     rnd = random.Random(seed)
     deja = set(deja or ())
     scenes = scenes or rnd.sample(list(SCENES), min(n, len(SCENES)))
@@ -294,6 +302,11 @@ def tirage(n=5, seed=None, deja=None, scenes=None, genre="f"):
     for idx, sc in enumerate(scenes):
         decor, poses, prise = SCENES[sc]
         libres = [p for p in poses if (sc, p) not in deja] or poses
+        if exclure:
+            def forme(p):
+                return au_masculin(p.replace("phone", "camera") if prise == "selfie" else p)
+            libres = ([p for p in libres if forme(p) not in exclure]
+                      or [p for p in poses if forme(p) not in exclure] or libres)
         # slide 1 : elle doit regarder l'objectif (c'est le hook du carrousel)
         # ensuite : 2 poses "regard ailleurs" au maximum sur les 5
         if idx == 0 or n_ailleurs >= 2:
