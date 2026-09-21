@@ -84,12 +84,18 @@ def enregistrer(meta, statut):
         return False, f"fiche : {code} {rep}"
 
     lignes = []
-    for i, ph in enumerate(meta["photos"], start=1):
+    textes = meta.get("textes") or []
+    for ph in meta["photos"]:
+        # le numero vient du nom du fichier, pas de sa place dans la liste : un
+        # carrousel peut avoir un trou (photo supprimee, ajout rate) ou plus de
+        # cinq photos, et une renumerotation decalerait photos et textes
+        i = int(ph[:-4])
         slide = next((s for s in meta.get("slides", []) if s.get("n") == i), {})
         lignes.append({
             "carrousel": meta["nom"], "numero": i,
             "chemin": f"{meta['nom']}/{i}.jpg",
-            "texte": (meta.get("textes") or [None] * 5)[i - 1] if len(meta.get("textes") or []) >= i else None,
+            # au-dela de cinq, les textes reprennent au debut
+            "texte": slide.get("texte") or (textes[(i - 1) % len(textes)] if textes else None),
             "scene": slide.get("scene"), "lieu": slide.get("lieu"),
         })
     code, rep = _appel(f"{BASE}/rest/v1/photos?on_conflict=carrousel,numero", "POST", lignes,
@@ -122,7 +128,8 @@ def sauvegarder(cibles=None, verbeux=True):
             continue
         rep = serveur.dossier_femme(nom)
         ok_photos = True
-        for i, ph in enumerate(meta["photos"], start=1):
+        for ph in meta["photos"]:
+            i = int(ph[:-4])             # le vrai numero, cf. enregistrer()
             ok, cible, rep_h = envoyer_photo(nom, i, os.path.join(rep, ph))
             # la vignette part aussi : sans elle, la librairie en ligne
             # telechargerait les images pleine resolution

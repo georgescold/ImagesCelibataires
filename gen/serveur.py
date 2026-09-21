@@ -76,7 +76,11 @@ def dossiers(archivees=False):
         rep = os.path.join(base, nom)
         if not os.path.isdir(rep) or nom.endswith("_raw") or nom.startswith("_") or nom in ("__pycache__", ".vignettes"):
             continue
-        photos = sorted(f for f in os.listdir(rep) if re.fullmatch(r"\d+\.jpg", f))
+        # tri NUMERIQUE : en ordre alphabetique, un carrousel etendu a 13 photos
+        # s'affichait 1, 10, 11, 12, 13, 2, 3… — et la deuxieme vignette etait la
+        # dixieme photo
+        photos = sorted((f for f in os.listdir(rep) if re.fullmatch(r"\d+\.jpg", f)),
+                        key=lambda f: int(f[:-4]))
         if not photos:
             continue
         meta_p = os.path.join(rep, "meta.json")

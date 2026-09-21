@@ -1,4 +1,7 @@
 <!doctype html>
+<!-- Fichier FABRIQUE par gen/faire_web.py a partir de gen/interface.html.
+     Ne pas le modifier a la main : la prochaine regeneration effacerait la
+     modification. Changer gen/interface.html, ou une regle de faire_web.py. -->
 <html lang="fr">
 <head>
 <meta charset="utf-8">
@@ -57,6 +60,7 @@ p{margin:0}
   padding-right:max(clamp(14px, 4vw, 32px), env(safe-area-inset-right));
   border-bottom:1px solid var(--bord);
   background:rgba(14,12,17,.74);
+  -webkit-backdrop-filter:blur(8px);
   backdrop-filter:blur(8px);
   position:sticky; top:0; z-index:20;
 }
@@ -141,6 +145,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 
 @keyframes tourne{to{transform:rotate(360deg)}}
 .bouton.travaille{color:transparent; pointer-events:none; position:relative}
+.bouton.telecharge.travaille::after, .bouton.plus.travaille::after{border-color:var(--accent-clair); border-top-color:transparent}
 .bouton.travaille::after{
   content:''; position:absolute; inset:0; margin:auto;
   width:16px; height:16px; border-radius:50%;
@@ -166,6 +171,10 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
   background:none; border:0; border-radius:9px; padding:8px 16px; cursor:pointer;
 }
 .onglet.actif{background:var(--accent); color:#2b060f}
+.onglet .nb{margin-left:6px; font-weight:600; opacity:.72; font-variant-numeric:tabular-nums}
+/* le bouton de déconnexion n'existe qu'en ligne (ajouté par faire_web.py) ;
+   son libellé court ne sert que sur téléphone */
+.sortir-court{display:none}
 .onglet:hover:not(.actif){color:var(--texte)}
 .bouton.archive{border-color:var(--bord); color:var(--doux)}
 .bouton.supprime{border-color:var(--bord); color:var(--doux)}
@@ -212,7 +221,8 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
   border-radius:999px; padding:4px 12px; white-space:nowrap;
 }
 .puce.reconstitue{color:var(--attention); border-color:#4a3c1c}
-.femme-tete .pousse{margin-left:auto}
+.femme-tete .etoile{margin-left:auto}
+.femme-actions{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
 
 .pellicule{display:grid; grid-template-columns:repeat(5,1fr); gap:16px; align-items:stretch}
 @media(max-width:1400px){.pellicule{grid-template-columns:repeat(4,1fr)}}
@@ -237,6 +247,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
   color:var(--texte); background:rgba(14,12,17,.72);
   border:1px solid var(--bord-vif); border-radius:50%;
   cursor:pointer; opacity:.35; transition:opacity .15s, background .15s, color .15s;
+  -webkit-backdrop-filter:blur(4px);
   backdrop-filter:blur(4px);
 }
 .vue:hover .refaire, .refaire:focus-visible{opacity:1}
@@ -295,7 +306,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
   .barre{gap:10px}
   .barre input[type="search"]{width:100%; order:3}
   .femme-tete{gap:8px}
-  .femme-tete .pousse{margin-left:0}
+  .femme-tete .etoile{margin-left:0}
 }
 
 /* ---- telephone ---- */
@@ -322,6 +333,45 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
   .puce{font-size:13px; padding:3px 10px}
   .legende{font-size:15px; padding:10px 12px}
   #journal{font-size:13px; max-height:150px}
+
+  /* Les onglets se partagent la largeur en trois parts égales, compteur sous
+     le libellé. Côte à côte, « Archivées (0) » ne tenait plus dès le troisième
+     onglet : chaque bouton passait sur deux lignes au hasard, 104 px de haut. */
+  /* L'en-tête reste collé en haut de l'écran : sur téléphone, chaque ligne y
+     coûte en permanence. La ligne des compteurs répète exactement ceux des
+     onglets, elle s'efface ; et en ligne, « Se déconnecter » devient « Sortir »
+     pour tenir sur la même ligne que le titre et le solde au lieu d'en ouvrir
+     une deuxième — l'en-tête passait à 121 px. */
+  .entete .note{display:none}
+  .sortir-long{display:none}
+  .sortir-court{display:inline}
+  .entete #sortir{padding:0 12px; min-height:44px; display:inline-flex; align-items:center}
+
+  .onglets{width:100%}
+  .onglets .onglet{
+    flex:1 1 0; min-width:0; padding:7px 4px;
+    display:flex; flex-direction:column; align-items:center;
+    font-size:14px; line-height:1.3;
+  }
+  .onglets .onglet .nb{margin-left:0; font-size:13px}
+
+  /* L'en-tête d'une fiche : l'étoile rejoint le nom, en haut à droite, et les
+     actions forment une grille de deux colonnes sous les puces. Mélangés aux
+     puces, les boutons s'éparpillaient sur trois lignes et « Supprimer » finissait
+     seul sur la sienne. */
+  .femme{position:relative}
+  .femme-tete .nom{padding-right:52px}
+  .femme-tete .etoile{position:absolute; top:10px; right:10px; margin:0}
+  /* la dominante colorimétrique et le nom de dossier servent à l'atelier, pas
+     au choix d'une photo à poster : sur téléphone ils cèdent la place */
+  .puce.technique{display:none}
+  /* align-items:stretch : sous 340 px « Tout télécharger » passe sur deux lignes,
+     et sa voisine doit prendre la même hauteur plutôt que de flotter au milieu */
+  .femme-actions{width:100%; display:grid; grid-template-columns:1fr 1fr; gap:8px; align-items:stretch}
+  .femme-actions .bouton{
+    width:100%; min-height:46px; padding-inline:8px; line-height:1.25;
+    display:flex; align-items:center; justify-content:center;
+  }
 }
 
 /* ---- tres petits ecrans ---- */
@@ -339,6 +389,17 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
   /* deux boutons cote a cote deviennent illisibles sous 360 px de carte */
   .vue-actions{flex-wrap:wrap}
   .vue-actions > *{min-width:calc(50% - 4px)}
+  /* l'etoile tient dans un carre de 44 px, comme toute autre cible */
+  .bouton.etoile{min-width:44px; min-height:44px; font-size:19px}
+}
+
+/* ---- sans survol (iPad, telephone) ----
+   La fleche de regeneration n'apparaissait franchement qu'au survol de la
+   photo : au doigt, il n'y a pas de survol, et elle restait a 35 % d'opacite
+   sur l'image — invisible sur une photo claire. Ici elle est toujours la, et
+   a la taille d'un doigt. */
+@media (hover: none){
+  .refaire{opacity:.92; width:44px; height:44px; font-size:21px; top:6px; right:6px}
 }
 
 /* ---- ecran tres bas (telephone en paysage) ---- */
@@ -353,7 +414,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
   <h1>Atelier carrousels</h1>
   <span class="solde" id="solde" title="Crédit fal restant">…</span>
   <span class="note" id="compte"></span>
-  <button class="bouton minuscule" id="sortir" style="margin-left:auto">Se déconnecter</button>
+  <button class="bouton minuscule" id="sortir" style="margin-left:auto" title="Se déconnecter"><span class="sortir-long">Se déconnecter</span><span class="sortir-court">Sortir</span></button>
 </header>
 
 <main>
@@ -452,7 +513,12 @@ const echappe = t => String(t ?? '').replace(/[&<>"]/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 function vue(f, n){
-  const txt = (f.textes && f.textes[n-1]) || '';
+  // Les cinq textes reprennent en boucle au-delà de la cinquième photo : une
+  // personne n'a qu'une identité, et un second lot de cinq se poste tel quel.
+  // Lus à l'indice n-1 seulement, les photos 6 et suivantes n'avaient pas de
+  // légende, et « Copier le texte » copiait une chaîne vide.
+  const t = f.textes || [];
+  const txt = t.length ? t[(n - 1) % t.length] : '';
   return `<div class="vue" id="vue-${f.nom}-${n}">
     <div class="cadre">
       <img src="${(f.vignettes && f.vignettes[n]) || `/api/media?nom=${f.nom}&n=${n}`}" alt="Photo ${n} de ${echappe(f.prenom)}">
@@ -465,7 +531,7 @@ function vue(f, n){
     </div>
     <div class="legende">${echappe(txt)}</div>
     <div class="vue-actions">
-      <a class="bouton telecharge minuscule" href="/api/media?nom=${f.nom}&n=${n}&plein=1" download>Télécharger</a>
+      <a class="bouton telecharge minuscule" href="/api/media?nom=${f.nom}&n=${n}&plein=1" download data-photo="${f.nom}_${n}.jpg">Télécharger</a>
       <button class="bouton minuscule" data-copie="${echappe(txt)}">Copier le texte</button>
     </div>
   </div>`;
@@ -479,22 +545,25 @@ function carte(f){
       <span class="puce genre">${f.genre === 'h' ? 'Homme' : 'Femme'}</span>
       <span class="puce">${echappe(f.metier || '—')}</span>
       <span class="puce">${echappe(f.recherche || '—')}</span>
-      <span class="puce">${echappe(f.persona || '—')}</span>
-      <span class="puce">${echappe(f.nom)}</span>
+      <span class="puce technique">${echappe(f.persona || '—')}</span>
+      <span class="puce technique">${echappe(f.nom)}</span>
       ${f.retro ? '<span class="puce reconstitue">texte reconstitué</span>' : ''}
       ${f.archivee && ONGLET === 'favoris' ? '<span class="puce">archivée</span>' : ''}
-      <button class="bouton etoile minuscule pousse${f.favori ? ' aimee' : ''}"
+      <button class="bouton etoile minuscule${f.favori ? ' aimee' : ''}"
         data-favori="${f.nom}" data-aimee="${f.favori ? 1 : 0}"
-        title="${f.favori ? 'Retirer des favoris' : 'Mettre en favori'}">${f.favori ? '★' : '☆'}</button>
-      <button class="bouton plus minuscule" data-plus="${f.nom}"
-        data-qui="${echappe(f.prenom || f.nom)}" ${f.extensible && !(EXT[f.nom] || {}).encours ? '' : 'disabled'}
-        title="${f.extensible
-          ? `${LOT} photos de plus de la même personne, environ ${(LOT * 0.045).toFixed(2).replace('.', ',')} $`
-          : 'Carrousel trop ancien : sa fiche ne contient pas la description du visage'}"
-        >+ ${LOT} photos</button>
-      <a class="bouton telecharge minuscule" href="/api/archive?nom=${f.nom}">Tout télécharger</a>
-      <button class="bouton archive minuscule" data-archive="${f.nom}" data-archivee="${f.archivee ? 1 : 0}">${f.archivee ? 'Restaurer' : 'Archiver'}</button>
-      <button class="bouton supprime minuscule" data-supprime="${f.nom}" data-qui="${echappe(f.prenom || f.nom)}">Supprimer</button>
+        title="${f.favori ? 'Retirer des favoris' : 'Mettre en favori'}"
+        aria-label="${f.favori ? 'Retirer des favoris' : 'Mettre en favori'}">${f.favori ? '★' : '☆'}</button>
+      <div class="femme-actions">
+        <button class="bouton plus minuscule" data-plus="${f.nom}"
+          data-qui="${echappe(f.prenom || f.nom)}" ${f.extensible && !(EXT[f.nom] || {}).encours ? '' : 'disabled'}
+          title="${f.extensible
+            ? `${LOT} photos de plus de la même personne, environ ${(LOT * 0.045).toFixed(2).replace('.', ',')} $`
+            : 'Carrousel trop ancien : sa fiche ne contient pas la description du visage'}"
+          >+ ${LOT} photos</button>
+        <a class="bouton telecharge minuscule" href="/api/archive?nom=${f.nom}" data-tout="${f.nom}">Tout télécharger</a>
+        <button class="bouton archive minuscule" data-archive="${f.nom}" data-archivee="${f.archivee ? 1 : 0}">${f.archivee ? 'Restaurer' : 'Archiver'}</button>
+        <button class="bouton supprime minuscule" data-supprime="${f.nom}" data-qui="${echappe(f.prenom || f.nom)}">Supprimer</button>
+      </div>
     </div>
     <div class="extension${(EXT[f.nom] || {}).rate ? ' rate' : ''}" id="ext-${f.nom}"
       ${EXT[f.nom] ? '' : 'hidden'}>${echappe((EXT[f.nom] || {}).texte || '')}</div>
@@ -536,19 +605,40 @@ async function solde(){
 }
 setInterval(solde, 60000);
 
+const libelle = (texte, nb) => `${texte}<span class="nb">${nb}</span>`;
+
+// Une fonction en panne répond souvent par une page HTML : on n'en garde que le
+// texte, sinon le message d'erreur affiche « <!DOCTYPE HTML><html… ».
+const sansBalises = t => String(t).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+
 async function charger(){
-  const r = await fetch('/api/librairie' + REQUETE[ONGLET]);
-  if(r.status === 401){ location.reload(); return; }
-  const d = await r.json();
-  FEMMES = d.femmes;
-  LOT = d.lot || LOT;
-  const sel = $('#persona');
-  if(!sel.options.length) d.personas.forEach(p => sel.add(new Option(p.replace(/_/g,' '), p)));
-  $('#compte').textContent = `${d.nb_actives} à poster · ${d.nb_favoris} favori${d.nb_favoris > 1 ? 's' : ''} · ${d.nb_archivees} archivée${d.nb_archivees > 1 ? 's' : ''}`;
-  $('#ongActives').textContent = `À poster (${d.nb_actives})`;
-  $('#ongFavoris').textContent = `Favoris (${d.nb_favoris})`;
-  $('#ongArchives').textContent = `Archivées (${d.nb_archivees})`;
-  rendre();
+  try{
+    const r = await fetch('/api/librairie' + REQUETE[ONGLET]);
+    if(r.status === 401){ location.reload(); return; }
+    // la réponse n'est pas toujours du JSON : une fonction qui plante renvoie du HTML
+    const brut = await r.text();
+    let d = {};
+    try{ d = JSON.parse(brut); }catch(e){}
+    if(!r.ok || !Array.isArray(d.femmes)) throw new Error(d.erreur || `${r.status} ${sansBalises(brut)}`);
+    FEMMES = d.femmes;
+    LOT = d.lot || LOT;
+    const sel = $('#persona');
+    if(!sel.options.length) d.personas.forEach(p => sel.add(new Option(p.replace(/_/g,' '), p)));
+    $('#compte').textContent = `${d.nb_actives} à poster · ${d.nb_favoris} favori${d.nb_favoris > 1 ? 's' : ''} · ${d.nb_archivees} archivée${d.nb_archivees > 1 ? 's' : ''}`;
+    $('#ongActives').innerHTML = libelle('À poster', d.nb_actives);
+    $('#ongFavoris').innerHTML = libelle('Favoris', d.nb_favoris);
+    $('#ongArchives').innerHTML = libelle('Archivées', d.nb_archivees);
+    rendre();
+  }catch(err){
+    // Sans ce garde-fou, la moindre panne laissait « Chargement… » à l'écran
+    // indéfiniment, sans dire ce qui n'allait pas (base en pause, réseau du
+    // téléphone qui décroche). Il avait été ajouté à la main dans web/app.html,
+    // et une régénération par faire_web.py l'avait effacé : il vit désormais ici.
+    $('#librairie').innerHTML = `<div class="vide">Bibliothèque injoignable.
+      <div style="margin-top:8px;font-size:14px;opacity:.7">${echappe(String(err.message || err))}</div>
+      <button class="bouton" id="reessayer" style="margin-top:14px">Réessayer</button></div>`;
+    $('#reessayer').onclick = charger;
+  }
 }
 
 function onglet(quel){
@@ -614,11 +704,107 @@ Le carrousel passe en corbeille : il disparaît des deux onglets mais les photos
   if(rf){ refaireUne(rf); return; }
   const b = e.target.closest('[data-copie]');
   if(!b) return;
-  navigator.clipboard.writeText(b.dataset.copie).then(() => {
-    const v = b.textContent; b.textContent = 'Copié';
-    setTimeout(() => b.textContent = v, 1200);
-  });
+  // le libellé d'origine est gardé à part : deux touchers rapprochés
+  // relisaient « Copié » comme libellé, et le bouton restait bloqué dessus
+  if(!b.dataset.libelle) b.dataset.libelle = b.textContent;
+  const annoncer = (t, ms) => { b.textContent = t; setTimeout(() => b.textContent = b.dataset.libelle, ms); };
+  copier(b.dataset.copie).then(() => annoncer('Copié', 1200), () => annoncer('Copie impossible', 2000));
 });
+
+// Le presse-papiers moderne n'existe que sur une page sécurisée, et Safari le
+// refuse parfois hors du geste qui l'a demandé. Le repli par zone de texte
+// sélectionnée marche partout — à condition, sur iOS, de fixer la sélection
+// par setSelectionRange : select() seul n'y sélectionne rien.
+function copier(texte){
+  if(navigator.clipboard && window.isSecureContext){
+    return navigator.clipboard.writeText(texte).catch(() => copierALAncienne(texte));
+  }
+  return copierALAncienne(texte);
+}
+
+function copierALAncienne(texte){
+  return new Promise((ok, ko) => {
+    const t = document.createElement('textarea');
+    t.value = texte;
+    t.setAttribute('readonly', '');
+    t.style.cssText = 'position:fixed;top:0;left:0;opacity:0;font-size:16px';
+    document.body.appendChild(t);
+    t.select();
+    t.setSelectionRange(0, texte.length);
+    let reussi = false;
+    try{ reussi = document.execCommand('copy'); }catch(err){}
+    t.remove();
+    reussi ? ok() : ko(new Error('copie refusée'));
+  });
+}
+
+// ------------------------------------------------ enregistrer dans la pellicule
+// Sur iPhone et iPad, un lien de téléchargement range la photo dans l'app
+// Fichiers, d'où il faut aller la rechercher pour l'enregistrer à la main dans
+// Photos — alors que c'est depuis la pellicule qu'on poste sur TikTok. La
+// feuille de partage du système propose, elle, « Enregistrer l'image » (ou
+// « Enregistrer 5 images »), qui les y range directement. On la préfère donc
+// sur un appareil tactile qui sait partager des fichiers. Ailleurs — et à la
+// souris, où la feuille de partage de Windows serait une surprise — le lien
+// garde son comportement ordinaire.
+const PARTAGE = matchMedia('(pointer: coarse)').matches && !!navigator.canShare && (() => {
+  try{ return navigator.canShare({files: [new File([new Blob()], 'x.jpg', {type: 'image/jpeg'})]}); }
+  catch(err){ return false; }
+})();
+
+// Safari n'accepte de partager que dans la foulée d'un geste. Si le
+// téléchargement des images a duré, il refuse (NotAllowedError) : on garde
+// alors les fichiers prêts, et le bouton demande un second toucher, qui
+// partage tout de suite, sans rien attendre.
+const PRETS = new WeakMap();
+
+async function versPellicule(lien, adresses, noms){
+  const prets = PRETS.get(lien);
+  if(prets){
+    PRETS.delete(lien);
+    lien.textContent = lien.dataset.libelle;
+    return navigator.share({files: prets}).catch(() => {});
+  }
+  if(lien.classList.contains('travaille')) return;
+  lien.classList.add('travaille');
+  let fichiers;
+  try{
+    fichiers = await Promise.all(adresses.map(async (u, i) => {
+      const r = await fetch(u);
+      if(!r.ok) throw new Error(r.status);
+      return new File([await r.blob()], noms[i], {type: 'image/jpeg'});
+    }));
+  }catch(err){
+    lien.classList.remove('travaille');
+    location.href = lien.href;          // le téléchargement ordinaire, en dernier recours
+    return;
+  }
+  lien.classList.remove('travaille');
+  try{
+    await navigator.share({files: fichiers});
+  }catch(err){
+    if(err.name === 'NotAllowedError'){
+      PRETS.set(lien, fichiers);
+      lien.dataset.libelle = lien.textContent;
+      lien.textContent = 'Toucher pour enregistrer';
+    }
+    // AbortError : la feuille a été refermée sans rien choisir, il n'y a rien à faire
+  }
+}
+
+// En phase de capture, pour passer avant le comportement par défaut du lien.
+document.addEventListener('click', e => {
+  if(!PARTAGE) return;
+  const lien = e.target.closest('a[data-photo], a[data-tout]');
+  if(!lien) return;
+  e.preventDefault();
+  if(lien.dataset.tout){
+    const photos = [...lien.closest('.femme').querySelectorAll('a[data-photo]')];
+    versPellicule(lien, photos.map(a => a.href), photos.map(a => a.dataset.photo));
+  }else{
+    versPellicule(lien, [lien.href], [lien.dataset.photo]);
+  }
+}, true);
 
 // ------------------------------------------- refaire une photo en particulier
 // Pas de confirmation : la flèche est petite, posée sur la photo concernée, et
@@ -756,11 +942,15 @@ $('#go').addEventListener('click', async () => {
 async function chargerTypes(){
   const sel = $('#carteType');
   try{
-    const d = await (await fetch('/api/types')).json();
-    if(d.erreur){ $('#carteErreur').textContent = d.erreur; return; }
+    const r = await fetch('/api/carte?types=1');
+    if(r.status === 401) return;        // session expirée : la bibliothèque recharge la page
+    const brut = await r.text();
+    let d = {};
+    try{ d = JSON.parse(brut); }catch(e){}
+    if(!r.ok || !Array.isArray(d.types)) throw new Error(d.erreur || `${r.status} ${sansBalises(brut)}`);
     d.types.forEach(t => sel.add(new Option(t.nom, t.id)));
   }catch(err){
-    $('#carteErreur').textContent = 'Types de personnalité indisponibles : redémarre le serveur.';
+    $('#carteErreur').textContent = 'Types de personnalité indisponibles : ' + (err.message || err);
   }
 }
 
@@ -776,8 +966,9 @@ $('#carteGo').addEventListener('click', async () => {
     const d = await r.json();
     if(d.erreur){ $('#carteErreur').textContent = d.erreur; return; }
     // le parametre de date force le rechargement quand on regenere la meme carte
-    $('#carteImage').src = '/carte/' + d.fichier + '?v=' + Date.now();
-    $('#carteDl').href = '/carte-dl/' + d.fichier;
+    $('#carteImage').src = '/api/carte?fichier=' + d.fichier + '&v=' + Date.now();
+    $('#carteDl').href = '/api/carte?fichier=' + d.fichier + '&dl=1';
+    $('#carteDl').dataset.photo = d.fichier;       // pour l'envoyer vers la pellicule, au doigt
     $('#carteNom').textContent = d.nom;
     $('#carteVariante').textContent =
       `Variante ${d.variante} sur ${d.variantes} pour ce type` +

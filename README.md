@@ -105,6 +105,38 @@ la fiche.
 
 ---
 
+## Sur iPad et téléphone
+
+L'interface en ligne est faite pour être utilisée au doigt, et vérifiée de 320 px
+(iPhone SE) à 1440 px : aucun défilement horizontal, aucune cible tactile sous
+44 px, aucun texte sous 13 px.
+
+**« Télécharger » range la photo dans la pellicule, pas dans Fichiers.** Sur iOS,
+un lien de téléchargement dépose l'image dans l'app Fichiers, d'où il faut aller
+la rechercher pour l'enregistrer à la main dans Photos — alors que c'est depuis
+la pellicule qu'on poste. Au doigt, « Télécharger » ouvre donc la feuille de
+partage du système, qui propose « Enregistrer l'image » ; « Tout télécharger » y
+envoie toutes les photos d'un coup (« Enregistrer 13 images ») au lieu d'un zip.
+Safari n'accepte de partager que dans la foulée d'un geste : si les images ont
+mis trop longtemps à arriver, le bouton affiche « Toucher pour enregistrer », et
+ce second toucher partage aussitôt, sans rien retélécharger. À la souris, rien ne
+change — la feuille de partage de Windows serait une surprise.
+
+**« Copier le texte »** passe par le presse-papiers moderne et, s'il refuse, par
+une zone de texte sélectionnée — sur iOS, `select()` seul n'y sélectionne rien.
+
+**La flèche ↻** reste discrète à la souris jusqu'au survol ; au doigt, où il n'y a
+pas de survol, elle est toujours visible et à la taille d'un doigt.
+
+Sur téléphone, les onglets se partagent la largeur en trois, compteur sous le
+libellé ; l'étoile rejoint le nom ; les actions d'une fiche forment une grille de
+deux colonnes ; et la dominante colorimétrique et le nom de dossier, qui servent
+à l'atelier et pas au choix d'une photo, s'effacent. La ligne de compteurs de
+l'en-tête, qui répète ceux des onglets, s'efface aussi : l'en-tête reste collé en
+haut de l'écran, et chaque ligne y coûte en permanence.
+
+---
+
 ## Les règles, et d'où elles viennent
 
 Le format a été reconstitué à partir d'un compte source analysé au scraper :
@@ -144,6 +176,12 @@ environ 95 secondes, sous la limite de 300 s déclarée dans `vercel.json`.
 `web/app.html` est fabriqué depuis `gen/interface.html` par
 `python gen/faire_web.py`, qui échoue bruyamment si une règle de
 transformation ne s'applique plus. Une seule source pour les deux interfaces.
+**On ne modifie jamais `web/app.html` à la main** : deux retouches faites
+directement dedans — les appels de la carte de personnalité en ligne, et la
+gestion d'erreur de la bibliothèque — ont été effacées par une régénération, et
+la carte est restée cassée en ligne jusqu'à ce qu'on s'en aperçoive. Elles vivent
+maintenant dans la source et dans les règles, et le fichier généré le rappelle
+en tête.
 
 Les vignettes sont servies directement par le CDN Supabase, avec des URL
 signées fabriquées **en un seul appel groupé**. Les signer une par une

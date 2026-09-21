@@ -64,6 +64,20 @@ REGLES = [
     (r"Les 5 photos partent dans gen/_corbeille, tu peux encore les récupérer à la main\.",
      "Le carrousel passe en corbeille : il disparaît des deux onglets mais les photos restent en ligne.",
      "message de confirmation"),
+    # --- carte de personnalite : en ligne, une seule fonction sert les trois
+    # usages, aiguillee par ses parametres. Ces trois regles ont longtemps
+    # manque : les bons appels avaient ete ecrits A LA MAIN dans web/app.html,
+    # si bien que la premiere regeneration les a effaces et a casse la carte
+    # en ligne. Elles vivent ici desormais.
+    (r"fetch\('/api/types'\)",
+     "fetch('/api/carte?types=1')",
+     "types de personnalite"),
+    (r"'/carte/' \+ d\.fichier \+ '\?v='",
+     "'/api/carte?fichier=' + d.fichier + '&v='",
+     "image de la carte"),
+    (r"'/carte-dl/' \+ d\.fichier",
+     "'/api/carte?fichier=' + d.fichier + '&dl=1'",
+     "telechargement de la carte"),
 ]
 
 
@@ -94,20 +108,29 @@ def transformer(html):
         html,
         '<span class="note" id="compte"></span>',
         '<span class="note" id="compte"></span>\n'
-        '  <button class="bouton minuscule" id="sortir" '
-        'style="margin-left:auto">Se déconnecter</button>',
+        '  <button class="bouton minuscule" id="sortir" style="margin-left:auto" '
+        'title="Se déconnecter"><span class="sortir-long">Se déconnecter</span>'
+        '<span class="sortir-court">Sortir</span></button>',
         "bouton de deconnexion")
 
     # une session expiree renvoie 401 : on repasse par la page de connexion
     html = remplacer(
         html,
-        "async function charger(){\n"
-        "  const d = await (await fetch('/api/librairie' + REQUETE[ONGLET])).json();",
-        "async function charger(){\n"
-        "  const r = await fetch('/api/librairie' + REQUETE[ONGLET]);\n"
-        "  if(r.status === 401){ location.reload(); return; }\n"
-        "  const d = await r.json();",
+        "    const r = await fetch('/api/librairie' + REQUETE[ONGLET]);\n",
+        "    const r = await fetch('/api/librairie' + REQUETE[ONGLET]);\n"
+        "    if(r.status === 401){ location.reload(); return; }\n",
         "session expiree")
+
+    # web/app.html se lit comme une source : on previent qu'il n'en est pas une.
+    # Deux retouches faites a la main ici — la carte en ligne et la gestion
+    # d'erreur de la bibliotheque — ont ete effacees par une regeneration.
+    html = remplacer(
+        html, "<!doctype html>\n",
+        "<!doctype html>\n"
+        "<!-- Fichier FABRIQUE par gen/faire_web.py a partir de gen/interface.html.\n"
+        "     Ne pas le modifier a la main : la prochaine regeneration effacerait la\n"
+        "     modification. Changer gen/interface.html, ou une regle de faire_web.py. -->\n",
+        "avertissement")
 
     # On s'accroche a la DERNIERE ligne du script, pas a `charger();` : l'ancre
     # d'origine visait cette ligne quand elle fermait le fichier, et le jour ou
