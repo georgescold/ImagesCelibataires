@@ -160,14 +160,38 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
   animation:tourne 700ms linear infinite;
 }
 
-/* ------------------------------------------------------------- journal */
-#journal{
-  margin-top:18px; padding:14px 16px;
-  background:var(--panneau-2); border:1px solid var(--bord); border-radius:var(--r);
-  font:14px/1.75 ui-monospace,'Cascadia Mono',Consolas,monospace;
-  color:var(--doux); white-space:pre-wrap; max-height:210px; overflow:auto;
-}
 #erreur{margin-top:14px; color:var(--erreur); font-size:15px; white-space:pre-wrap}
+
+/* ------------------------------------------------- generations en cours
+   Toutes les generations, d'ou qu'elles viennent : lancee sur le telephone,
+   elle apparait ici sur l'iPad, avec son avancement. */
+.gen{padding:14px 0; border-top:1px solid var(--bord)}
+.gen:first-child{border-top:0; padding-top:0}
+.gen:last-child{padding-bottom:0}
+.gen-tete{display:flex; align-items:baseline; justify-content:space-between; gap:12px}
+.gen-titre{font-weight:800; font-size:16px; min-width:0; overflow-wrap:anywhere}
+.gen-pct{font-weight:800; font-variant-numeric:tabular-nums; color:var(--accent-clair); white-space:nowrap}
+.gen.fini .gen-pct{color:var(--ok)}
+.gen.erreur .gen-pct{color:var(--erreur)}
+.barre-prog{
+  height:8px; margin:9px 0 7px; overflow:hidden;
+  background:var(--panneau-2); border:1px solid var(--bord); border-radius:999px;
+}
+.barre-prog > span{
+  display:block; height:100%;
+  background:linear-gradient(90deg, var(--accent), var(--accent-clair)); border-radius:inherit;
+}
+.gen.fini .barre-prog > span{background:var(--ok)}
+.gen.erreur .barre-prog > span{background:var(--erreur)}
+.gen-etape{font-size:14px; color:var(--doux); overflow-wrap:anywhere}
+.gen.erreur .gen-etape{color:var(--erreur)}
+.gen details{margin-top:4px}
+.gen summary{cursor:pointer; font-size:14px; color:var(--doux); min-height:36px; display:flex; align-items:center}
+.gen pre{
+  margin:4px 0 0; padding:10px 12px; max-height:200px; overflow:auto;
+  background:var(--panneau-2); border:1px solid var(--bord); border-radius:var(--r);
+  font:13px/1.65 ui-monospace,'Cascadia Mono',Consolas,monospace; color:var(--doux); white-space:pre-wrap;
+}
 
 /* -------------------------------------------------------------- librairie */
 .barre{display:flex; gap:14px; align-items:center; margin-bottom:18px; flex-wrap:wrap}
@@ -269,6 +293,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
   animation:tourne 700ms linear infinite;
 }
 .vue.ratee .refaire{opacity:1; color:var(--erreur); border-color:var(--erreur)}
+.vue-note{font-size:13px; line-height:1.4; color:var(--erreur); overflow-wrap:anywhere}
 .legende{
   background:var(--panneau-2); border:1px solid var(--bord); border-radius:10px;
   padding:11px 13px; font-size:16px; color:var(--texte); display:flex; align-items:center;
@@ -339,7 +364,6 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
   .femme-tete .nom{font-size:17px; width:100%; margin-right:0}
   .puce{font-size:13px; padding:3px 10px}
   .legende{font-size:15px; padding:10px 12px}
-  #journal{font-size:13px; max-height:150px}
 
   /* Les onglets se partagent la largeur en trois parts égales, compteur sous
      le libellé. Côte à côte, « Archivées (0) » ne tenait plus dès le troisième
@@ -425,6 +449,14 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 
 <main>
 
+  <section class="panneau" id="enCours" hidden aria-live="polite">
+    <div class="tete-panneau">
+      <h2>Générations en cours</h2>
+      <span class="note" id="enCoursNote" style="color:var(--doux);font-size:15px"></span>
+    </div>
+    <div id="enCoursListe"></div>
+  </section>
+
   <section class="panneau">
     <div class="tete-panneau">
       <h2>Nouveau profil</h2>
@@ -452,7 +484,6 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
       </div>
       <button class="bouton primaire" id="go">Générer le carrousel</button>
     </div>
-    <div id="journal" hidden></div>
     <div id="erreur"></div>
   </section>
 
@@ -499,7 +530,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 
 <script>
 const $ = s => document.querySelector(s);
-let FEMMES = [], enCours = false, ONGLET = 'actives';
+let FEMMES = [], ONGLET = 'actives';
 // les favoris sont une categorie a part : ils melangent a poster et archivees,
 // donc l'onglet ne se resume plus a un booleen « archives ou non »
 const REQUETE = {actives:'', favoris:'?favoris=1', archives:'?archives=1'};
@@ -536,6 +567,7 @@ function vue(f, n){
         aria-label="Regénérer la photo ${n}">↻</button>
     </div>
     <div class="legende">${echappe(txt)}</div>
+    ${NOTES_VUE.has(`${f.nom}-${n}`) ? `<div class="vue-note">${echappe(NOTES_VUE.get(`${f.nom}-${n}`))}</div>` : ''}
     <div class="vue-actions">
       <a class="bouton telecharge minuscule" href="/dl/${f.nom}/${n}.jpg" download data-photo="${f.nom}_${n}.jpg">Télécharger</a>
       <button class="bouton minuscule" data-copie="${echappe(txt)}">Copier le texte</button>
@@ -830,12 +862,31 @@ function rafraichir(nom, n){
   img.src = u + (u.includes('?') ? '&' : '?') + 'r=' + Date.now();
 }
 
+// L'échec d'une photo s'écrit sous CETTE photo. Écrit en haut de page, dans le
+// formulaire « Nouveau profil », il restait invisible à qui venait de toucher la
+// flèche, loin en bas de la bibliothèque. Gardé ici pour survivre au redessin.
+const NOTES_VUE = new Map();           // "nom-numéro" -> message
+function noteVue(nom, n, texte){
+  const cle = `${nom}-${n}`;
+  if(texte) NOTES_VUE.set(cle, texte); else NOTES_VUE.delete(cle);
+  const v = document.getElementById(`vue-${cle}`);
+  if(!v) return;
+  let z = v.querySelector('.vue-note');
+  if(!texte){ if(z) z.remove(); return; }
+  if(!z){
+    z = document.createElement('div');
+    z.className = 'vue-note';
+    v.querySelector('.legende').after(z);
+  }
+  z.textContent = texte;
+}
+
 async function refaireUne(bouton){
   const nom = bouton.dataset.refaire, n = bouton.dataset.numero;
   const v = document.getElementById(`vue-${nom}-${n}`);
   if(!v || v.classList.contains('occupee')) return;
   etatVue(nom, n, 'occupee');
-  $('#erreur').textContent = '';
+  noteVue(nom, n, '');
 
   const r = await fetch('/api/generer', {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -844,9 +895,10 @@ async function refaireUne(bouton){
   const {job, erreur} = await r.json();
   if(erreur || !job){
     etatVue(nom, n, 'ratee');
-    $('#erreur').textContent = erreur || 'La régénération n’a pas démarré.';
+    noteVue(nom, n, erreur || 'La régénération n’a pas démarré.');
     return;
   }
+  suivreGenerations();
 
   const t = setInterval(async () => {
     const j = await (await fetch('/api/job/' + job)).json();
@@ -854,7 +906,7 @@ async function refaireUne(bouton){
     clearInterval(t);
     if(j.etat === 'erreur'){
       etatVue(nom, n, 'ratee');
-      $('#erreur').textContent = j.erreur || 'La régénération a échoué.';
+      noteVue(nom, n, (j.erreur || 'La régénération a échoué.').split('\n')[0]);
       return;
     }
     await charger();          // redessine la carte, puis on force l'image
@@ -896,6 +948,7 @@ Même visage, nouveaux lieux, et les mêmes textes qui reprennent dans l'ordre :
     ecrire(erreur || 'La génération n’a pas démarré.', true, false);
     return;
   }
+  suivreGenerations();
 
   const t = setInterval(async () => {
     const j = await (await fetch('/api/job/' + job)).json();
@@ -910,35 +963,134 @@ Même visage, nouveaux lieux, et les mêmes textes qui reprennent dans l'ordre :
   }, 1500);
 }
 
-$('#go').addEventListener('click', async () => {
-  if(enCours) return;
-  enCours = true;
-  const go = $('#go');
-  go.classList.add('travaille'); go.disabled = true;
-  $('#erreur').textContent = '';
-  $('#journal').hidden = false;
-  $('#journal').textContent = 'Démarrage…';
+// ------------------------------------------------ générations en cours, partout
+// La liste vient du serveur, pas de l'appareil qui a lancé : une génération
+// lancée sur le téléphone apparaît sur l'iPad, avec son avancement, et chacun
+// voit son issue. Plusieurs peuvent tourner ensemble : le bouton « Générer »
+// ne se bloque plus, et le serveur tire prénom, poses et lieux sous verrou.
+const VUES = new Map();                // id -> état au dernier passage
+let prochaineLecture = null, premiereLecture = true;
 
-  const r = await fetch('/api/generer', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({age:+$('#age').value, persona:$('#persona').value, nom:$('#nom').value, genre:$('#genre').value})
-  });
-  const {job} = await r.json();
+// Chaque photo terminée laisse dans le journal une ligne « 3 [scène] … », et
+// `total` dit combien il en faut. La photo en cours compte pour moitié : sans
+// cela la barre resterait à zéro pendant toute la première.
+function avancement(j){
+  if(j.etat === 'fini') return 100;
+  const total = j.total || 5;
+  const faites = (j.lignes || []).filter(l => /^\s{2}\d+ \[/.test(l)).length;
+  return Math.min(97, Math.round((Math.min(faites, total) + 0.5) / total * 100));
+}
 
-  const t = setInterval(async () => {
-    const j = await (await fetch('/api/job/' + job)).json();
-    $('#journal').textContent = (j.lignes || []).join('\n') || 'Génération en cours…';
-    $('#journal').scrollTop = 1e6;
-    if(j.etat === 'fini' || j.etat === 'erreur'){
-      clearInterval(t);
-      enCours = false;
-      go.classList.remove('travaille'); go.disabled = false;
-      if(j.etat === 'erreur') $('#erreur').textContent = j.erreur;
-      $('#nom').value = '';
-      charger();
-      solde();
+// le journal parle au développeur ; l'étape, à celle qui regarde
+function etape(j){
+  if(j.etat === 'fini') return 'Terminé';
+  if(j.etat === 'erreur') return (j.erreur || 'Échec').split('\n')[0];
+  const l = (j.lignes || []).map(x => x.trim()).filter(Boolean);
+  if(!l.length) return 'Démarrage…';
+  const d = l[l.length - 1];
+  let m;
+  if((m = d.match(/^(\d+) \[/))) return `Photo ${m[1]} terminée`;
+  if((m = d.match(/^(\d+) recalée \((.*)\)/))) return `Photo ${m[1]} refaite : ${m[2]}`;
+  if((m = d.match(/^contrôle (\d+)/))) return `Photo ${m[1]} contrôlée`;
+  if(/^identité :/.test(d)) return 'Identité tirée, première photo en cours';
+  if(/ photo\(s\) de plus, /.test(d)) return 'Première photo en cours';
+  if((m = d.match(/on refait la photo (\d+)/))) return `Photo ${m[1]} en cours`;
+  if(/^visage :/.test(d)) return 'Visage décrit';
+  if(/televersees/.test(d)) return 'Enregistrement';
+  return d.replace(/^=>\s*/, '');
+}
+
+// un nouveau profil ne connaît son prénom qu'une fois l'identité tirée
+function titre(j){
+  const id = (j.lignes || []).map(l => l.match(/identité : ([^,]+), (\d+) ans/)).find(Boolean);
+  if(j.type === 'creation' && id) return `${id[1]}, ${id[2]} ans · nouveau profil`;
+  return j.libelle || j.nom;
+}
+
+let dernierRendu = '';
+function rendreGenerations(jobs){
+  const actives = jobs.filter(j => j.etat === 'en cours').length;
+  $('#enCours').hidden = !jobs.length;
+  $('#enCours h2').textContent = actives ? 'Générations en cours' : 'Générations terminées';
+  $('#enCoursNote').textContent = actives ? `${actives} en cours` : '';
+  // le journal ouvert le reste d'un passage à l'autre
+  const ouverts = new Set([...document.querySelectorAll('#enCoursListe details[open]')].map(d => d.dataset.id));
+  const html = jobs.map(j => {
+    const p = avancement(j), classe = j.etat === 'fini' ? 'fini' : j.etat === 'erreur' ? 'erreur' : '';
+    return `<div class="gen ${classe}">
+      <div class="gen-tete"><span class="gen-titre">${echappe(titre(j))}</span><span class="gen-pct">${p} %</span></div>
+      <div class="barre-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${p}"
+        aria-label="Avancement"><span style="width:${p}%"></span></div>
+      <div class="gen-etape">${echappe(etape(j))}</div>
+      <details data-id="${echappe(j.id)}" ${ouverts.has(String(j.id)) ? 'open' : ''}>
+        <summary>Journal</summary><pre>${echappe((j.lignes || []).join('\n'))}</pre>
+      </details>
+    </div>`;
+  }).join('');
+  // Rien de neuf : on ne touche pas à la page. Redessinée toutes les trois
+  // secondes pour rien, elle remettait en haut le journal qu'on était en train de lire.
+  if(html === dernierRendu) return;
+  dernierRendu = html;
+  $('#enCoursListe').innerHTML = html;
+  document.querySelectorAll('#enCoursListe details[open] pre').forEach(p => p.scrollTop = p.scrollHeight);
+}
+// un journal qu'on ouvre montre d'abord ses dernières lignes
+$('#enCoursListe').addEventListener('toggle', e => {
+  const p = e.target.open && e.target.querySelector('pre');
+  if(p) p.scrollTop = p.scrollHeight;
+}, true);
+
+async function suivreGenerations(){
+  clearTimeout(prochaineLecture);
+  let jobs = null;
+  try{
+    const r = await fetch('/api/job');
+    if(r.ok) jobs = (await r.json()).jobs || [];
+  }catch(err){}
+  if(jobs){
+    // Une génération qui vient d'aboutir — vue ici en cours, ou apparue déjà
+    // finie parce que l'appareil dormait : la bibliothèque et le solde ont changé.
+    let aRecharger = false;
+    for(const j of jobs){
+      const avant = VUES.get(j.id);
+      if(j.etat === 'fini' && avant !== 'fini' && (avant === 'en cours' || !premiereLecture)) aRecharger = true;
+      VUES.set(j.id, j.etat);
     }
-  }, 1500);
+    premiereLecture = false;
+    rendreGenerations(jobs);
+    if(aRecharger){ charger(); solde(); }
+  }
+  // plus vite quand quelque chose tourne ; rien du tout quand l'écran est caché
+  if(document.visibilityState === 'visible'){
+    const actives = (jobs || []).some(j => j.etat === 'en cours');
+    prochaineLecture = setTimeout(suivreGenerations, actives ? 3000 : 12000);
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible') suivreGenerations();
+  else clearTimeout(prochaineLecture);
+});
+
+$('#go').addEventListener('click', async () => {
+  const go = $('#go');
+  $('#erreur').textContent = '';
+  go.classList.add('travaille'); go.disabled = true;
+  try{
+    const r = await fetch('/api/generer', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({age:+$('#age').value, persona:$('#persona').value, nom:$('#nom').value, genre:$('#genre').value})
+    });
+    const d = await r.json();
+    if(d.erreur || !d.job){ $('#erreur').textContent = d.erreur || 'La génération n’a pas démarré.'; return; }
+    $('#nom').value = '';
+    await suivreGenerations();           // elle apparaît aussitôt dans « Générations en cours »
+    $('#enCours').scrollIntoView({behavior:'smooth', block:'nearest'});
+  }catch(err){
+    $('#erreur').textContent = 'La génération n’a pas démarré : ' + err;
+  }finally{
+    // on peut en lancer une autre tout de suite : le bouton n'attend plus la fin
+    go.classList.remove('travaille'); go.disabled = false;
+  }
 });
 
 // --------------------------------------------------- carte de personnalite
@@ -987,6 +1139,7 @@ $('#carteGo').addEventListener('click', async () => {
 charger();
 solde();
 chargerTypes();
+suivreGenerations();
 </script>
 </body>
 </html>

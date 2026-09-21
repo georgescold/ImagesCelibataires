@@ -132,19 +132,17 @@ def transformer(html):
         "     modification. Changer gen/interface.html, ou une regle de faire_web.py. -->\n",
         "avertissement")
 
-    # On s'accroche a la DERNIERE ligne du script, pas a `charger();` : l'ancre
-    # d'origine visait cette ligne quand elle fermait le fichier, et le jour ou
-    # `solde()` puis `chargerTypes()` sont passes apres, le remplacement a cesse
-    # de s'appliquer — en silence. Le bouton « Se déconnecter » etait affiche en
-    # ligne sans rien faire. D'ou `remplacer` plutot que `str.replace`.
+    # On s'accroche a la fermeture du script elle-meme, pas a sa derniere ligne :
+    # l'ancre d'origine visait `charger();`, puis `chargerTypes();`, et chaque
+    # appel ajoute apres elles la rendait caduque — la premiere fois en silence,
+    # et le bouton « Se déconnecter » est reste affiche en ligne sans rien faire.
     html = remplacer(
         html,
-        "chargerTypes();\n</script>",
-        "chargerTypes();\n\n"
-        "$('#sortir').onclick = async () => {\n"
+        "\n</script>\n</body>",
+        "\n\n$('#sortir').onclick = async () => {\n"
         "  await fetch('/api/sortir', {method:'POST'});\n"
         "  location.reload();\n"
-        "};\n</script>",
+        "};\n</script>\n</body>",
         "branchement de la deconnexion")
 
     return remplacer(html, "<title>Atelier carrousels</title>",

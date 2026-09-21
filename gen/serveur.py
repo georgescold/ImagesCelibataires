@@ -8,7 +8,7 @@ Puis ouvrir http://localhost:8420
 Serveur en bibliotheque standard uniquement (rien a installer).
 La cle fal ne quitte jamais la machine : elle reste dans runner.py.
 """
-import json, os, re, sys, threading, traceback, uuid, io, zipfile
+import datetime, json, os, re, sys, threading, time, traceback, uuid, io, zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, unquote
 
@@ -17,8 +17,16 @@ os.chdir(RACINE)
 sys.path.insert(0, os.path.join(RACINE, "gen"))
 
 PORT = 8420
-JOBS = {}          # id -> {"etat":..., "lignes":[...], "nom":..., "erreur":...}
+JOBS = {}          # id -> {"etat":..., "lignes":[...], "nom":..., "type":..., "total":..., ...}
 VERROU = threading.Lock()
+# Plusieurs generations peuvent tourner en meme temps, chacune dans son fil.
+# Sans ce verrou, deux d'entre elles liraient le meme registre de prenoms, de
+# poses et de lieux, et pourraient tirer le meme prenom : le tirage se fait donc
+# un a la fois — une fraction de seconde, pas toute la generation.
+VERROU_TIRAGE = threading.Lock()
+# une generation finie reste visible ce temps-la dans la liste, pour qu'on voie
+# son issue au lieu de la voir disparaitre
+RECENTE = 120
 PERSONAS = ["discrete_nature", "sportive_naturelle", "quarantenaire_filtres", "bobo_voyage", "fetarde"]
 ARCHIVES = os.path.join("gen", "_archives")
 CORBEILLE = os.path.join("gen", "_corbeille")
@@ -153,6 +161,10 @@ def vignette(nom, fichier):
 
 
 # --------------------------------------------------------------- generation
+def _horodatage():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
 def lancer(job_id, travail):
     """Execute `travail(noter)` dans un thread. Le journal passe par un canal
     explicite : on ne touche jamais a sys.stdout, qui est global au processus et
@@ -162,22 +174,49 @@ def lancer(job_id, travail):
     def noter(ligne):
         with VERROU:
             j["lignes"].append(str(ligne).rstrip())
+            j["maj"], j["maj_t"] = _horodatage(), time.time()
 
     try:
         travail(noter)
-        j["etat"] = "fini"
+        etat, erreur = "fini", None
     except BaseException as e:      # SystemExit compris : carrousel.py s'en sert
         noter(f"ECHEC : {e}")
-        j["etat"] = "erreur"
-        j["erreur"] = str(e) + chr(10) + traceback.format_exc()[-900:]
+        etat, erreur = "erreur", str(e) + chr(10) + traceback.format_exc()[-900:]
+    with VERROU:
+        j["etat"], j["erreur"] = etat, erreur
+        j["maj"], j["maj_t"] = _horodatage(), time.time()
 
 
-def en_tache(nom, travail):
-    """Cree le job et demarre le thread. Retourne l'identifiant a suivre."""
+def _nouveau_job(nom, type_, total, libelle):
+    """Inscrit un job. A appeler SOUS VERROU : c'est ce qui rend atomique la
+    verification « rien ne tourne deja sur ce nom » suivie de l'inscription."""
     job_id = uuid.uuid4().hex[:10]
-    JOBS[job_id] = {"etat": "en cours", "lignes": [], "nom": nom, "erreur": None}
+    JOBS[job_id] = {"id": job_id, "etat": "en cours", "lignes": [], "nom": nom, "erreur": None,
+                    "type": type_, "total": total, "libelle": libelle,
+                    "cree": _horodatage(), "maj": _horodatage(), "maj_t": time.time()}
+    return job_id
+
+
+def _actifs():
+    """Noms sur lesquels une generation tourne. A appeler sous VERROU."""
+    return {j["nom"] for j in JOBS.values() if j["etat"] == "en cours"}
+
+
+def _demarrer(job_id, travail):
     threading.Thread(target=lancer, args=(job_id, travail), daemon=True).start()
     return job_id
+
+
+def _qui(nom):
+    """« Prenom, age ans » pour les libelles, depuis la fiche du carrousel."""
+    try:
+        m = json.load(open(os.path.join("gen", nom, "meta.json"), encoding="utf-8"))
+        return f"{m.get('prenom') or nom}, {m.get('age')} ans"
+    except (OSError, ValueError):
+        return nom
+
+
+DEJA_EN_COURS = "une génération est déjà en cours pour cette personne"
 
 
 # --------------------------------------------------------------- HTTP
@@ -255,6 +294,16 @@ class H(BaseHTTPRequestHandler):
             if mode == "carte-dl":
                 ent["Content-Disposition"] = f'attachment; filename="{fichier}"'
             return self._envoyer(200, "image/jpeg", open(p, "rb").read(), ent)
+
+        if chemin == "/api/job":
+            # toutes les generations en cours, plus celles finies depuis peu :
+            # meme reponse que la fonction en ligne, pour une interface commune
+            with VERROU:
+                t = time.time()
+                jobs = [dict(j) for j in JOBS.values()
+                        if j["etat"] == "en cours" or t - j["maj_t"] < RECENTE]
+            jobs.sort(key=lambda j: j["cree"], reverse=True)
+            return self._json({"jobs": jobs[:20]})
 
         if chemin.startswith("/api/job/"):
             j = JOBS.get(chemin.rsplit("/", 1)[1])
@@ -405,7 +454,12 @@ class H(BaseHTTPRequestHandler):
             if not 1 <= numero <= 100:
                 return self._json({"erreur": "numéro de photo invalide"}, 400)
             import carrousel
-            job = en_tache(nom, lambda noter: carrousel.refaire(nom, numero, journal=noter))
+            with VERROU:
+                if nom in _actifs():
+                    return self._json({"erreur": DEJA_EN_COURS}, 409)
+                job = _nouveau_job(nom, "reprise", 1, f"{_qui(nom)} · photo {numero} refaite")
+            _demarrer(job, lambda noter: carrousel.refaire(
+                nom, numero, journal=noter, tirage_exclusif=lambda: VERROU_TIRAGE))
             return self._json({"job": job, "nom": nom, "numero": numero})
 
         if d.get("etendre"):
@@ -422,21 +476,32 @@ class H(BaseHTTPRequestHandler):
                                              "(restaure-le s'il est archivé)"}, 404)
             combien = max(1, min(10, int(d.get("combien") or LOT_SUPPLEMENTAIRE)))
             import carrousel
-            job = en_tache(nom, lambda noter: carrousel.ajouter(nom, combien, journal=noter))
+            with VERROU:
+                if nom in _actifs():
+                    return self._json({"erreur": DEJA_EN_COURS}, 409)
+                job = _nouveau_job(nom, "extension", combien,
+                                   f"{_qui(nom)} · {combien} photo{'s' if combien > 1 else ''} de plus")
+            _demarrer(job, lambda noter: carrousel.ajouter(
+                nom, combien, journal=noter, tirage_exclusif=lambda: VERROU_TIRAGE))
             return self._json({"job": job, "nom": nom, "combien": combien})
 
         age = max(30, min(70, int(d.get("age", 45))))
         persona = d.get("persona") if d.get("persona") in PERSONAS else "discrete_nature"
         genre = "h" if d.get("genre") == "h" else "f"
         base = re.sub(r"[^a-z0-9_]", "", (d.get("nom") or "").lower()) or f"{'homme' if genre == 'h' else 'femme'}{age}"
-        nom = base
-        i = 2
-        while os.path.exists(os.path.join("gen", nom)):
-            nom = f"{base}_{i}"
-            i += 1
         import carrousel
-        job_id = en_tache(nom, lambda noter: carrousel.build(nom, persona, age,
-                                                             journal=noter, genre=genre))
+        # Choisi et reserve sous verrou : deux « femme58 » lancees a la suite
+        # passaient toutes deux le test du dossier, que build() ne cree qu'une fois
+        # son fil demarre, et auraient ecrit dans le meme.
+        with VERROU:
+            actifs = _actifs()
+            nom, i = base, 2
+            while os.path.exists(os.path.join("gen", nom)) or nom in actifs:
+                nom, i = f"{base}_{i}", i + 1
+            job_id = _nouveau_job(nom, "creation", 5,
+                                  f"Nouveau profil · {'homme' if genre == 'h' else 'femme'} de {age} ans")
+        _demarrer(job_id, lambda noter: carrousel.build(
+            nom, persona, age, journal=noter, genre=genre, tirage_exclusif=lambda: VERROU_TIRAGE))
         return self._json({"job": job_id, "nom": nom})
 
 

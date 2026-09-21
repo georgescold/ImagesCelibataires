@@ -11,6 +11,7 @@ Sur Vercel le systeme de fichiers est en lecture seule sauf /tmp, et il est
 efface entre deux invocations : rien de durable ne peut y etre ecrit.
 """
 import hashlib, hmac, json, os, time, urllib.request, urllib.error
+from contextlib import contextmanager
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126 Safari/537.36")
@@ -24,13 +25,22 @@ SECRET = os.environ.get("SESSION_SECRET", "") or CLE[:48]
 PERSONAS = ["discrete_nature", "sportive_naturelle", "quarantenaire_filtres",
             "bobo_voyage", "fetarde"]
 
-# les registres d'etat vivaient dans des fichiers ; en ligne ils sont
-# dans le stockage, sinon ils disparaitraient a chaque invocation
-# `_variantes_cartes.json` suit la meme regle : sans lui, chaque invocation
-# repartirait d'un registre vide et retirerait les memes segments.
-REGISTRES = ["_poses_utilisees.json", "_lieux_utilises.json",
-             "_prenoms_utilises.json", "_prenoms_h_utilises.json",
-             "_variantes_cartes.json"]
+# --- Registres d'etat -------------------------------------------------------
+#
+# En local ce sont des fichiers de gen/. En ligne, /tmp s'efface entre deux
+# invocations : il leur faut un endroit durable. Ils ont longtemps ete ecrits
+# dans le bucket de photos — qui n'accepte QUE du image/jpeg. Chaque envoi etait
+# refuse (415 invalid_mime_type) sans que personne le sache, et chaque
+# generation en ligne repartait de registres vides : la regle des 40 prenoms,
+# la carence des lieux, l'exclusion des poses deja jouees, la rotation des
+# variantes de cartes n'ont jamais fonctionne en ligne. Ils vivent desormais
+# dans la table `registres`, ou le JSON est chez lui.
+#
+# Chaque flux ne relit et ne renvoie QUE les registres qu'il modifie, sous
+# verrou, le temps du tirage : cf. `registres()`.
+REGISTRES_TIRAGE = ["_poses_utilisees.json", "_lieux_utilises.json",
+                    "_prenoms_utilises.json", "_prenoms_h_utilises.json"]
+REGISTRE_CARTES = "_variantes_cartes.json"
 
 
 # ------------------------------------------------------------------ Supabase
@@ -149,31 +159,104 @@ def preparer_tmp():
     """Recree l'arborescence attendue par le code de generation.
 
     carrousel.py travaille en chemins relatifs sous `gen/`. On reconstitue
-    donc ce repertoire dans /tmp, on y depose les registres telecharges
-    depuis le stockage, et on s'y place. Les modules eux-memes restent lus
-    depuis le paquet deploye.
+    donc ce repertoire dans /tmp et on s'y place. Les modules eux-memes restent
+    lus depuis le paquet deploye. Les registres, eux, ne sont PAS charges ici :
+    ils le sont sous verrou, au moment du tirage (cf. `registres()`).
     """
-    import shutil, sys
+    import sys
     racine = "/tmp/atelier"
     os.makedirs(os.path.join(racine, "gen"), exist_ok=True)
     paquet = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "gen")
     if paquet not in sys.path:
         sys.path.insert(0, paquet)
-    for nom in REGISTRES:
-        contenu = lire_objet(f"_registres/{nom}")
-        if contenu:
-            open(os.path.join(racine, "gen", nom), "wb").write(contenu)
     os.chdir(racine)
     return racine
 
 
-def rendre_registres(racine):
-    """Renvoie les registres au stockage : sans cela, deux generations
-    successives rejoueraient les memes poses et les memes lieux."""
-    for nom in REGISTRES:
-        p = os.path.join(racine, "gen", nom)
-        if os.path.exists(p):
-            ecrire_objet(f"_registres/{nom}", open(p, "rb").read(), "application/json")
+# --------------------------------------------------------------------- verrous
+def _horodatage(decalage=0):
+    import datetime
+    return (datetime.datetime.now(datetime.timezone.utc)
+            + datetime.timedelta(seconds=decalage)).isoformat()
+
+
+def horodatage_url(decalage=0):
+    """Pour un filtre d'URL : le « + » de « +00:00 » y deviendrait une espace."""
+    from urllib.parse import quote
+    return quote(_horodatage(decalage))
+
+
+def prendre_verrou(nom, attente=25, perime=30):
+    """Pose le verrou `nom` : une ligne de la table `verrous`, dont la cle
+    primaire refuse un second preneur. Rend False si on n'a pas pu l'obtenir a
+    temps — on continue alors sans lui plutot que de faire echouer une
+    generation payee. Un verrou pose depuis plus de `perime` secondes est leve
+    d'office : c'est celui d'une fonction tuee en plein tirage."""
+    import random as _r
+    fin = time.time() + attente
+    while True:
+        c, _ = rest("verrous", "POST", {"nom": nom}, prefer="return=minimal")
+        if c in (200, 201, 204):
+            return True
+        rest(f"verrous?nom=eq.{nom}&pris=lt.{horodatage_url(-perime)}", "DELETE", prefer="return=minimal")
+        if time.time() > fin:
+            return False
+        time.sleep(0.25 + _r.random() * 0.35)
+
+
+def rendre_verrou(nom):
+    rest(f"verrous?nom=eq.{nom}", "DELETE", prefer="return=minimal")
+
+
+@contextmanager
+def verrou(nom):
+    """`with verrou("x"):` — rendu meme si le bloc leve une exception."""
+    tenu = prendre_verrou(nom)
+    try:
+        yield tenu
+    finally:
+        if tenu:
+            rendre_verrou(nom)
+
+
+@contextmanager
+def registres(racine, noms, nom_verrou):
+    """Le tirage (prenom, poses, lieux, variante de carte) en lecture-modification-
+    ecriture exclusive : on prend le verrou, on relit ces registres en base, on
+    laisse le code de generation les modifier dans /tmp, on les renvoie aussitot,
+    puis on rend le verrou. Une seconde ou deux, au lieu de la generation entiere.
+
+    Sans cela, deux generations lancees ensemble lisaient le meme etat : meme
+    prenom possible pour les deux, et le second envoi ecrasait le premier."""
+    import json as _json
+    with verrou(nom_verrou):
+        liste = ",".join(f'"{n}"' for n in noms)
+        c, lignes = rest(f"registres?nom=in.({liste})&select=nom,contenu")
+        lu = c == 200 and isinstance(lignes, list)
+        depot = {l["nom"]: l["contenu"] for l in lignes} if lu else {}
+        for nom in noms:
+            local = os.path.join(racine, "gen", nom)
+            if nom in depot:
+                with open(local, "w", encoding="utf-8") as f:
+                    _json.dump(depot[nom], f, ensure_ascii=False)
+            elif lu and os.path.exists(local):
+                os.remove(local)       # reliquat d'une invocation precedente sur cette machine
+        yield
+        if not lu:
+            # Relecture ratee : le tirage s'est fait sans l'historique. Le renvoyer
+            # remplacerait en base quarante prenoms par un seul — on s'en abstient.
+            return
+        maj = []
+        for nom in noms:
+            local = os.path.join(racine, "gen", nom)
+            if os.path.exists(local):
+                maj.append({"nom": nom, "contenu": _json.load(open(local, encoding="utf-8")),
+                            "maj": _horodatage()})
+        if maj:
+            c, r = rest("registres?on_conflict=nom", "POST", maj,
+                        prefer="resolution=merge-duplicates,return=minimal")
+            if c not in (200, 201, 204):
+                raise RuntimeError(f"registres non enregistres : {c} {str(r)[:160]}")
 
 
 # ------------------------------------------------ televersement d'un carrousel

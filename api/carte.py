@@ -93,11 +93,14 @@ class handler(BaseHTTPRequestHandler):
             base = re.sub(r"[^A-Za-z0-9_-]+", "-", f"{prenom}-{type_id}").strip("-").lower() or "carte"
             fichier = f"{base}.jpg"
             chemin = os.path.join(racine, "gen", "_cartes", fichier)
-            t = carte.rendre(type_id, prenom, chemin)
+            # Le tirage de la variante relit et renvoie son SEUL registre, sous
+            # verrou. Il renvoyait auparavant les cinq registres, y compris ceux
+            # des generations, qu'il ecrasait avec la copie lue au debut.
+            with L.registres(racine, [L.REGISTRE_CARTES], "cartes"):
+                t = carte.rendre(type_id, prenom, chemin)
 
             if not L.ecrire_objet(f"{PREFIXE}/{fichier}", open(chemin, "rb").read()):
                 return L.json_rep(self, {"erreur": "Carte dessinée mais pas enregistrée."}, 502)
-            L.rendre_registres(racine)
         except BaseException as e:
             return L.json_rep(self, {"erreur": str(e)[:300]}, 500)
 

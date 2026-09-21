@@ -20,6 +20,7 @@ source, dans le visage (visages.py).
 supplementaires a partir de son propre visage : meme personne, nouveaux lieux.
 """
 import sys, os, base64, json, random, time
+from contextlib import nullcontext
 sys.path.insert(0, 'gen')
 from runner import call, first_image_url, download
 from pipeline import finish
@@ -151,7 +152,7 @@ def _produire(faire, chemin_brut, reference, genre, dire, numero, exiger_visage=
 
 # -------------------------------------------------------------------- generation
 def build(nom, persona="discrete_nature", age=42, seed=None, journal=None, genre="f",
-          avant=None, relances_jusqua=None):
+          avant=None, relances_jusqua=None, tirage_exclusif=nullcontext):
     """`journal` : fonction appelee pour chaque ligne d'avancement.
     Par defaut on ecrit sur la sortie standard ; le serveur, lui, fournit
     son propre collecteur — aucun etat global n'est modifie.
@@ -159,7 +160,13 @@ def build(nom, persona="discrete_nature", age=42, seed=None, journal=None, genre
     `relances_jusqua` : plus aucune relance apres cet instant (cf. _produire).
     `avant` : plus aucune photo entamee apres cet instant. Les deux ne servent
     qu'en ligne, ou la fonction est tuee a 300 s et ou rien n'est televerse
-    avant la fin : un carrousel de quatre photos vaut mieux que zero."""
+    avant la fin : un carrousel de quatre photos vaut mieux que zero.
+
+    `tirage_exclusif` : fabrique d'un contexte dans lequel se fait le tirage du
+    prenom, des poses et des lieux. Plusieurs generations peuvent tourner en meme
+    temps ; sans exclusion, elles liraient le meme etat des registres et
+    pourraient tirer le meme prenom. En local c'est un verrou de fil d'execution,
+    en ligne un verrou en base qui relit et renvoie aussi les registres."""
     dire = journal or (lambda m: print(m, flush=True))
     rnd = random.Random(seed)
     raw, fin = f"gen/{nom}_raw", f"gen/{nom}"
@@ -167,22 +174,26 @@ def build(nom, persona="discrete_nature", age=42, seed=None, journal=None, genre
     os.makedirs(fin, exist_ok=True)
 
     homme = genre == "h"
-    ident_civile = (identite_h if homme else identite)(age, rnd)
-    deja = charger_etat()
-    # --- lieux : un fond ne peut pas revenir avant 30 generations de femmes ---
-    gen, registre = lieux.charger()
-    scenes = lieux.scenes_disponibles(5, gen, registre, rnd)
-    plans, deja = tirage(5, seed=seed, deja=deja, scenes=scenes, genre=genre)
-    for x in plans:
-        lieu, libre = lieux.choisir(x["scene"], gen, registre, rnd)
-        # les fonds sont ecrits au feminin ("in her living room") : ils passent
-        # par la meme conversion que les poses
-        x["decor"] = au_masc(lieu) if genre == "h" else lieu
-        registre[lieu] = gen
-        if not libre:
-            dire(f"    (banque de lieux epuisee pour {x['scene']}, repli sur le plus ancien)")
-    lieux.sauver(gen + 1, registre)
-    sauver_etat(deja)
+    with tirage_exclusif():
+        ident_civile = (identite_h if homme else identite)(age, rnd)
+        deja = charger_etat()
+        # --- lieux : un fond ne peut pas revenir avant 30 generations de femmes ---
+        gen, registre = lieux.charger()
+        scenes = lieux.scenes_disponibles(5, gen, registre, rnd)
+        plans, deja = tirage(5, seed=seed, deja=deja, scenes=scenes, genre=genre)
+        for x in plans:
+            lieu, libre = lieux.choisir(x["scene"], gen, registre, rnd)
+            # les fonds sont ecrits au feminin ("in her living room") : ils passent
+            # par la meme conversion que les poses
+            x["decor"] = au_masc(lieu) if genre == "h" else lieu
+            registre[lieu] = gen
+            if not libre:
+                dire(f"    (banque de lieux epuisee pour {x['scene']}, repli sur le plus ancien)")
+        lieux.sauver(gen + 1, registre)
+        sauver_etat(deja)
+    # l'identite, des maintenant : les autres appareils l'affichent dans les
+    # generations en cours, bien avant la fin
+    dire(f"  identité : {ident_civile['prenom']}, {age} ans, {ident_civile['metier']}")
 
     # --- slide 1 : le hero, en text-to-image ---
     p0 = plans[0]
@@ -293,7 +304,7 @@ def _bilan(controles, dire):
 
 # --------------------------------------------------- photos supplementaires
 def ajouter(nom, combien=5, journal=None, seed=None, avant=None, depart=None,
-            relances_jusqua=None):
+            relances_jusqua=None, tirage_exclusif=nullcontext):
     """Ajoute des photos a un carrousel deja genere, a partir de SON visage.
 
     On ne regenere pas la personne : sa description de visage, ses signes
@@ -338,18 +349,19 @@ def ajouter(nom, combien=5, journal=None, seed=None, avant=None, depart=None,
                             if f.endswith(".jpg") and f[:-4].isdigit())
         depart = (max(existantes) + 1) if existantes else 1
 
-    deja = charger_etat()
-    gen, registre = lieux.charger()
-    scenes = lieux.scenes_disponibles(combien, gen, registre, rnd)
-    plans, deja = tirage(combien, seed=seed, deja=deja, scenes=scenes, genre=genre)
-    for x in plans:
-        lieu, libre = lieux.choisir(x["scene"], gen, registre, rnd)
-        x["decor"] = au_masc(lieu) if homme else lieu
-        registre[lieu] = gen
-        if not libre:
-            dire(f"    (banque de lieux epuisee pour {x['scene']}, repli sur le plus ancien)")
-    lieux.sauver(gen + 1, registre)
-    sauver_etat(deja)
+    with tirage_exclusif():                       # cf. build()
+        deja = charger_etat()
+        gen, registre = lieux.charger()
+        scenes = lieux.scenes_disponibles(combien, gen, registre, rnd)
+        plans, deja = tirage(combien, seed=seed, deja=deja, scenes=scenes, genre=genre)
+        for x in plans:
+            lieu, libre = lieux.choisir(x["scene"], gen, registre, rnd)
+            x["decor"] = au_masc(lieu) if homme else lieu
+            registre[lieu] = gen
+            if not libre:
+                dire(f"    (banque de lieux epuisee pour {x['scene']}, repli sur le plus ancien)")
+        lieux.sauver(gen + 1, registre)
+        sauver_etat(deja)
 
     signes = meta.get("signes") or []
     rappel = ""
@@ -388,7 +400,8 @@ def ajouter(nom, combien=5, journal=None, seed=None, avant=None, depart=None,
 
 
 # --------------------------------------------------- refaire une seule photo
-def refaire(nom, numero, journal=None, seed=None, relances_jusqua=None):
+def refaire(nom, numero, journal=None, seed=None, relances_jusqua=None,
+            tirage_exclusif=nullcontext):
     """Refait la photo `numero` d'un carrousel, a la place de l'ancienne.
 
     La scene et son lieu sont conserves : ils sont deja consommes dans les
@@ -428,10 +441,11 @@ def refaire(nom, numero, journal=None, seed=None, relances_jusqua=None):
     if not reference:
         raise SystemExit(f"La photo {base} est introuvable : rien a partir de quoi refaire.")
 
-    deja = charger_etat()
-    deja.add((ancien["scene"], ancien.get("pose", "")))     # ne pas rejouer la pose ratee
-    plans, deja = tirage(1, seed=seed, deja=deja, scenes=[ancien["scene"]], genre=genre)
-    sauver_etat(deja)
+    with tirage_exclusif():                       # cf. build()
+        deja = charger_etat()
+        deja.add((ancien["scene"], ancien.get("pose", "")))     # ne pas rejouer la pose ratee
+        plans, deja = tirage(1, seed=seed, deja=deja, scenes=[ancien["scene"]], genre=genre)
+        sauver_etat(deja)
     x = plans[0]
     x["decor"] = ancien["lieu"]                             # meme decor, deja consomme
 

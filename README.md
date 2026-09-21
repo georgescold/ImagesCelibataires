@@ -105,6 +105,45 @@ la fiche.
 
 ---
 
+## Plusieurs générations à la fois, suivies de partout
+
+Le bouton « Générer le carrousel » ne se bloque plus pendant une génération : on
+peut en lancer une deuxième, une troisième, ou un « + 5 photos » sur quelqu'un
+d'autre, et elles tournent ensemble. Le panneau **« Générations en cours »**, en
+haut de page, les montre toutes **d'où qu'elles viennent** : lancée sur le
+téléphone, une génération apparaît sur l'iPad avec son pourcentage et son étape
+(« Photo 3 terminée », « Photo 2 refaite : … »), et chaque appareil voit son
+issue — elle reste affichée deux minutes après la fin, et la bibliothèque se
+recharge d'elle-même. La liste vient du serveur (`/api/job` sans identifiant), pas
+de la mémoire de l'appareil qui a lancé.
+
+Le pourcentage compte les photos terminées sur le total prévu — 5 pour un profil
+ou un lot, 1 pour une reprise — et la photo en cours compte pour moitié, sans quoi
+la barre resterait à zéro pendant toute la première. L'interface relit la liste
+toutes les 3 secondes quand quelque chose tourne, toutes les 12 sinon, et plus du
+tout quand l'écran est caché ; elle se remet à jour dès qu'on y revient.
+
+Ce qui rend le parallélisme sûr :
+
+- **le tirage est exclusif.** Deux générations simultanées liraient le même état
+  des registres et pourraient tirer le même prénom. Le tirage du prénom, des poses
+  et des lieux se fait donc sous verrou, le temps d'une fraction de seconde et non
+  de toute la génération : un verrou de fil en local ; en ligne, une ligne de la
+  table `verrous`, dont la clé primaire refuse un second preneur, levée d'office
+  après 30 secondes si la fonction qui la tenait a été tuée. Mesuré en ligne :
+  quatre créations lancées au même instant, quatre prénoms différents, et les
+  quatre dans le registre ;
+- **le nom de dossier est réservé au lancement.** Deux « femme58 » lancées ensemble
+  passaient toutes deux le test « ce dossier n'existe pas », puisqu'il n'existe
+  qu'à la fin ; les générations en cours comptent désormais comme des noms pris,
+  et le choix se fait sous verrou ;
+- **une personne ne subit qu'une génération à la fois.** Deux « + 5 photos »
+  simultanés sur la même femme numéroteraient à partir du même numéro et
+  s'écraseraient l'un l'autre : le second est refusé, comme une reprise de photo
+  pendant un lot. Le refus s'affiche sous la photo touchée, pas en haut de page.
+
+---
+
 ## Sur iPad et téléphone
 
 L'interface en ligne est faite pour être utilisée au doigt, et vérifiée de 320 px
@@ -188,9 +227,13 @@ Trois choses ont donc été déplacées :
 
 - les photos et les vignettes vont dans le bucket Supabase ;
 - la bibliothèque et l'état des générations vivent dans des tables ;
-- les registres de poses, lieux et prénoms sont téléchargés dans `/tmp`
-  avant chaque génération, puis renvoyés au stockage — sans quoi deux
-  générations successives rejoueraient les mêmes poses et les mêmes lieux.
+- les registres de poses, de lieux, de prénoms et de variantes de cartes vivent
+  dans la table `registres`, relus et renvoyés sous verrou au moment du tirage.
+  Ils ont longtemps été écrits dans le bucket — qui n'accepte que du JPEG : chaque
+  envoi était refusé sans bruit, et chaque génération en ligne repartait de
+  registres vides. La règle des 40 prénoms, la carence des lieux, l'exclusion des
+  poses déjà jouées et la rotation des variantes de cartes n'ont donc jamais
+  fonctionné en ligne avant cette table.
 
 Le code de génération n'est pas dupliqué : on recrée dans `/tmp`
 l'arborescence qu'il attend et on le laisse travailler. Une génération prend
