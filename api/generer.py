@@ -27,10 +27,18 @@ import _lib as L
 
 LOT = 5
 
-# Une fonction Vercel est tuee a 300 s. On n'entame plus de photo au-dela de
-# cette marge : ce qui est deja fait doit avoir le temps d'etre televerse,
-# sinon la depense est perdue.
+# Une fonction Vercel est tuee a 300 s, et rien n'est televerse avant la fin :
+# depasser, c'est perdre tout le carrousel, deja paye. Deux echeances, comptees
+# depuis le debut du travail :
+#   - plus aucune relance apres RELANCES_JUSQUA : les photos recalees au-dela
+#     sont gardees telles quelles ;
+#   - plus aucune photo entamee apres BUDGET.
+# Pire cas : trois essais sur la photo 1 et trois sur la photo 2 menent a 150 s ;
+# les trois dernieres, sans relance, a 225 s ; le televersement a 240 s.
+# Constate avant ces echeances : huit relances d'affilee sur l'age ont mene une
+# generation a 437 s, et Vercel l'a tuee au milieu de la quatrieme photo.
 BUDGET = 235
+RELANCES_JUSQUA = 150
 
 
 def _maj(job_id, **champs):
@@ -101,9 +109,11 @@ class handler(BaseHTTPRequestHandler):
         L.json_rep(self, {"job": job_id, "nom": nom})
 
         def faire(journal):
+            debut = time.time()
             racine = L.preparer_tmp()
             import carrousel
-            carrousel.build(nom, persona, age, journal=journal, genre=genre)
+            carrousel.build(nom, persona, age, journal=journal, genre=genre,
+                            avant=debut + BUDGET, relances_jusqua=debut + RELANCES_JUSQUA)
             meta = json.load(open(os.path.join(racine, "gen", nom, "meta.json"),
                                   encoding="utf-8"))
             L.televerser(nom, racine, meta, journal)
@@ -139,7 +149,8 @@ class handler(BaseHTTPRequestHandler):
                 raise RuntimeError("photo 1 introuvable dans le stockage")
             import carrousel
             ajoutees = carrousel.ajouter(nom, combien, journal=journal, depart=depart,
-                                         avant=debut + BUDGET)
+                                         avant=debut + BUDGET,
+                                         relances_jusqua=debut + RELANCES_JUSQUA)
             if ajoutees:
                 neuve = json.load(open(os.path.join(racine, "gen", nom, "meta.json"),
                                        encoding="utf-8"))
@@ -171,11 +182,13 @@ class handler(BaseHTTPRequestHandler):
         L.json_rep(self, {"job": job_id, "nom": nom, "numero": numero})
 
         def faire(journal):
+            debut = time.time()
             racine = L.preparer_tmp()
             if _preparer_reprise(nom, fiche, racine) is None:
                 raise RuntimeError("photo 1 introuvable dans le stockage")
             import carrousel
-            carrousel.refaire(nom, numero, journal=journal)
+            carrousel.refaire(nom, numero, journal=journal,
+                              relances_jusqua=debut + RELANCES_JUSQUA)
             neuve = json.load(open(os.path.join(racine, "gen", nom, "meta.json"),
                                    encoding="utf-8"))
             L.televerser(nom, racine, neuve, journal, numeros=[numero], creation=False)

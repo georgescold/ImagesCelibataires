@@ -2,15 +2,24 @@
 """
 Controle visuel automatique d'une photo generee.
 
-Quatre defauts sont cherches :
+Trois defauts sont cherches, tous objectifs :
 
   1. ce n'est plus la meme personne que sur la photo de reference ;
   2. le corps est faux — un membre en trop, ou une position qu'aucun etre
      humain ne peut tenir : bras qui contourne le torse, articulation a
      l'envers, main posee ou elle n'atteint pas ;
   3. un element impossible traine dans l'image (deuxieme telephone dans la main
-     libre d'un selfie au miroir, personne dupliquee, objet flottant) ;
-  4. plus souple : la personne fait-elle son age.
+     libre d'un selfie au miroir, personne dupliquee, objet flottant).
+
+L'AGE N'EST PAS JUGE, et ce n'est pas un oubli. Il l'a ete, avec relance a la
+cle, et c'etait une erreur a deux titres. C'est un avis, pas un constat : le meme
+visage a ete estime a 35 puis a 40 ans d'un appel a l'autre. Et relancer n'y
+changeait rien : les photos 2 a 5 recopient le visage de la photo 1, et le modele
+d'image rajeunit systematiquement au-dela de 55 ans. Sur une demande a 58 ans,
+huit relances d'affilee pour « parait 45 ans » ont pousse la fonction en ligne
+au-dela de ses 300 secondes, et Vercel l'a tuee avant qu'elle ait rien enregistre.
+L'age se regle desormais a la source, dans la description du visage : voir
+SIGNES_AGE dans visages.py.
 
 Le controle tourne sur l'image BRUTE, avant le post-traitement : le flou, le
 bruit de capteur et la double compression de `pipeline.finish` sont ajoutes
@@ -51,14 +60,6 @@ VLM = "google/gemini-2.5-flash"
 # 6 a 18 %, le seuil est pose au milieu.
 SEUIL_VISAGE = 12
 
-# Ecart d'age tolere entre l'age demande et l'age apparent juge par le modele.
-# Asymetrique : le format repose sur des profils de 38 ans et plus (66 700 vues
-# de moyenne contre 19 000 en dessous). Une femme de 52 ans qui en parait 38
-# casse le format ; en paraitre 58 ne le casse pas. Le juge sous-estime par
-# ailleurs de cinq ans environ, ce que la tolerance basse absorbe.
-TROP_JEUNE = 9
-TROP_VIEUX = 13
-
 REGLES = (
     "Tu es controleur qualite pour des photos amateur prises au telephone.\n"
     "Ne signale QUE des defauts objectifs et visibles. Dans le doute, reponds \"ok\".\n"
@@ -73,7 +74,6 @@ POINTS = {
     "visage":   '  "visage": "net" | "cache",',
     "identite": '  "identite": "meme" | "differente" | "indeterminable",',
     "elements": '  "elements": "ok" | "<l\'element impossible en cinq mots>",',
-    "age":      '  "age": <entier, age apparent de la personne>',
 }
 
 EXPLICATIONS = {
@@ -90,8 +90,6 @@ EXPLICATIONS = {
         " DEUX telephones alors qu'elle prend un selfie, elle apparait deux fois dans l'image,"
         " un objet flotte sans support, un miroir renvoie une scene differente, un objet"
         " traverse un corps.",
-    "age":
-        "- \"age\" : l'age que tu donnerais a cette personne en la croisant dans la rue.",
 }
 
 FIN = "\n\nReponds UNIQUEMENT par l'objet JSON, sans texte autour, sans balises de code."
@@ -163,11 +161,11 @@ def inspecter(chemin, reference=None, genre="f"):
         entete = (f"L'image 1 est la photo de reference de {qui}. L'image 2 est une nouvelle"
                   " photo censee montrer LA MEME personne, un autre jour, dans un autre lieu"
                   " et une autre tenue.\nJuge UNIQUEMENT l'image 2.\n\n")
-        points = ("visage", "identite", "elements", "age")
+        points = ("visage", "identite", "elements")
         images = [_uri(reference), _uri(chemin)]
     else:
         entete = f"Cette photo montre {qui}.\n\n"
-        points = ("visage", "elements", "age")
+        points = ("visage", "elements")
         images = [_uri(chemin)]
 
     ok, corps, _ = call(MODELE, {
@@ -276,12 +274,12 @@ def mesurer_visage(chemin):
     return _hauteur_visage((_lire_json(corps.get("output", "")) or {}).get("boite"))
 
 
-# Les deux reproches qui reposent sur la lecture du visage, et qu'une mesure
-# doit donc confirmer avant qu'ils ne declenchent une relance a 0,045 $.
-_SUR_LE_VISAGE = ("ce n'est pas la même", "paraît")
+# Le reproche qui repose sur la lecture du visage, et qu'une mesure doit donc
+# confirmer avant qu'il ne declenche une relance a 0,045 $.
+_SUR_LE_VISAGE = ("ce n'est pas la même",)
 
 
-def verdict(rapport, age, chemin=None):
+def verdict(rapport, chemin=None):
     """(ok, [problemes]). Les problemes sont ecrits pour etre lus dans le journal,
     et traduits en consignes pour la relance par `consigne_relance`.
 
@@ -303,12 +301,6 @@ def verdict(rapport, age, chemin=None):
     if isinstance(v, str) and v.strip().lower() not in ("ok", "", "aucun", "non", "rien", "n/a"):
         soucis.append(f"élément impossible : {v.strip()}")
 
-    vu = rapport.get("age")
-    if net and isinstance(vu, (int, float)) and age:
-        ecart = age - vu
-        if ecart > TROP_JEUNE or -ecart > TROP_VIEUX:
-            soucis.append(f"paraît {int(vu)} ans au lieu de {age}")
-
     if chemin and any(s.startswith(_SUR_LE_VISAGE) for s in soucis):
         pct = mesurer_visage(chemin)
         rapport["visage_pct"] = pct
@@ -317,11 +309,11 @@ def verdict(rapport, age, chemin=None):
     return not soucis, soucis
 
 
-def controler(chemin, reference=None, age=None, genre="f"):
+def controler(chemin, reference=None, genre="f"):
     """Le controle complet d'une photo : (ok, soucis, rapport).
 
     Deux appels au juge, parce que deux questions melangees se repondent mal :
-    l'une sur la personne (meme visage, age, element impossible), l'autre sur
+    l'une sur la personne (meme visage, element impossible), l'autre sur
     son corps (denombrement des membres, tenabilite de la position). Un
     troisieme appel ne part que si un reproche porte sur le visage.
     """
@@ -329,7 +321,7 @@ def controler(chemin, reference=None, age=None, genre="f"):
     if rapport.get("panne"):
         return True, [], rapport
     rapport["corps"] = inspecter_corps(chemin)
-    ok, soucis = verdict(rapport, age, chemin=chemin)
+    ok, soucis = verdict(rapport, chemin=chemin)
     return ok, soucis, rapport
 
 
@@ -358,10 +350,6 @@ def consigne_relance(soucis, genre="f"):
             bouts.append(f" The scene must be physically possible: {elle} holds ONE phone and"
                          f" nothing else, {elle} appears exactly once in the frame, no floating"
                          " object, no impossible reflection.")
-        elif s.startswith("paraît"):
-            bouts.append(f" {elle.capitalize()} must clearly look {son} real age: fine lines around"
-                         f" the eyes and mouth, slightly loose skin on the neck and jaw, mature"
-                         f" adult features. Do NOT make {son} look younger than {son} age.")
     return "".join(dict.fromkeys(bouts))          # sans doublon, ordre conserve
 
 
@@ -375,6 +363,4 @@ def resume(rapport):
     bouts = []
     if rapport.get("identite") == "meme":
         bouts.append("même visage")
-    if isinstance(rapport.get("age"), (int, float)):
-        bouts.append(f"paraît {int(rapport['age'])} ans")
     return ", ".join(bouts)

@@ -11,9 +11,10 @@ Les poses deja utilisees sont memorisees dans gen/_poses_utilisees.json :
 deux carrousels ne rejouent jamais la meme pose tant que la banque n'est pas epuisee.
 
 Chaque photo passe au controle (gen/controle.py) avant d'etre gardee : meme
-visage que la photo 1, anatomie possible, rien d'impossible dans le cadre, et
-l'age demande. Une photo recalee est refaite, deux fois au plus, avec la faute
-constatee reinjectee dans le prompt.
+visage que la photo 1, corps possible, rien d'impossible dans le cadre. Une
+photo recalee est refaite, deux fois au plus, avec la faute constatee reinjectee
+dans le prompt. L'age, lui, ne se controle pas apres coup : il se decrit a la
+source, dans le visage (visages.py).
 
 `ajouter()` reprend un carrousel deja genere et lui fabrique des photos
 supplementaires a partir de son propre visage : meme personne, nouveaux lieux.
@@ -76,7 +77,7 @@ def bloc(x):
 VISAGE_LISIBLE = "visage de la photo 1 trop petit ou masqué : elle sert de référence"
 
 
-def _controler(chemin, reference, age, genre, dire, exiger_visage=False):
+def _controler(chemin, reference, genre, dire, exiger_visage=False):
     """Passe une photo au controle. Retourne (ok, soucis, rapport).
 
     `exiger_visage` : pour la photo 1 seulement. Elle sert de reference aux
@@ -87,7 +88,7 @@ def _controler(chemin, reference, age, genre, dire, exiger_visage=False):
     """
     if not controle.actif():
         return True, [], {}
-    ok, soucis, rapport = controle.controler(chemin, reference=reference, age=age, genre=genre)
+    ok, soucis, rapport = controle.controler(chemin, reference=reference, genre=genre)
     if rapport.get("panne"):
         dire(f"    controle indisponible ({rapport['panne'][:70]}), photo gardee")
         return True, [], rapport
@@ -112,11 +113,18 @@ def _renfort(soucis, genre):
     return controle.consigne_relance(soucis, genre)
 
 
-def _produire(faire, chemin_brut, reference, age, genre, dire, numero, exiger_visage=False):
+def _produire(faire, chemin_brut, reference, genre, dire, numero, exiger_visage=False,
+              relances_jusqua=None):
     """Genere une photo, la controle, la refait si elle est recalee.
 
     `faire(renfort)` fait un essai et rend True si l'image est sur le disque ;
     c'est l'appelant qui sait s'il s'agit d'un text-to-image ou d'une edition.
+
+    `relances_jusqua` : instant (time.time()) passe lequel on ne relance plus, on
+    garde la photo telle quelle. En ligne, une fonction Vercel est tuee a 300 s ;
+    une relance de trop, et tout le carrousel est perdu, deja paye et pas encore
+    televerse. Une photo imparfaite vaut mieux que pas de carrousel du tout.
+
     Retourne (reussi, rapport_final, nb_relances).
     """
     renfort = ""
@@ -124,7 +132,7 @@ def _produire(faire, chemin_brut, reference, age, genre, dire, numero, exiger_vi
     for essai in range(RELANCES + 1):
         if not faire(renfort):
             return False, dernier, essai
-        ok, soucis, dernier = _controler(chemin_brut, reference, age, genre, dire, exiger_visage)
+        ok, soucis, dernier = _controler(chemin_brut, reference, genre, dire, exiger_visage)
         if ok:
             note = controle.resume(dernier)
             if note:
@@ -133,16 +141,25 @@ def _produire(faire, chemin_brut, reference, age, genre, dire, numero, exiger_vi
         if essai == RELANCES:
             dire(f"    {numero} gardée malgré : {' ; '.join(soucis)}")
             return True, dernier, essai
+        if relances_jusqua and time.time() > relances_jusqua:
+            dire(f"    {numero} gardée malgré : {' ; '.join(soucis)} (plus le temps de la refaire)")
+            return True, dernier, essai
         dire(f"    {numero} recalée ({' ; '.join(soucis)}) — on refait")
         renfort = _renfort(soucis, genre)
     return True, dernier, RELANCES
 
 
 # -------------------------------------------------------------------- generation
-def build(nom, persona="discrete_nature", age=42, seed=None, journal=None, genre="f"):
+def build(nom, persona="discrete_nature", age=42, seed=None, journal=None, genre="f",
+          avant=None, relances_jusqua=None):
     """`journal` : fonction appelee pour chaque ligne d'avancement.
     Par defaut on ecrit sur la sortie standard ; le serveur, lui, fournit
-    son propre collecteur — aucun etat global n'est modifie."""
+    son propre collecteur — aucun etat global n'est modifie.
+
+    `relances_jusqua` : plus aucune relance apres cet instant (cf. _produire).
+    `avant` : plus aucune photo entamee apres cet instant. Les deux ne servent
+    qu'en ligne, ou la fonction est tuee a 300 s et ou rien n'est televerse
+    avant la fin : un carrousel de quatre photos vaut mieux que zero."""
     dire = journal or (lambda m: print(m, flush=True))
     rnd = random.Random(seed)
     raw, fin = f"gen/{nom}_raw", f"gen/{nom}"
@@ -189,8 +206,8 @@ def build(nom, persona="discrete_nature", age=42, seed=None, journal=None, genre
         download(first_image_url(body), f"{raw}/1.jpg")
         return True
 
-    fait, rap1, n1 = _produire(essai_hero, f"{raw}/1.jpg", None, age, genre, dire, 1,
-                               exiger_visage=True)
+    fait, rap1, n1 = _produire(essai_hero, f"{raw}/1.jpg", None, genre, dire, 1,
+                               exiger_visage=True, relances_jusqua=relances_jusqua)
     if echec or not fait:
         return
     finish(f"{raw}/1.jpg", f"{fin}/1.jpg", persona=persona, force_nb=(slide_nb == 1),
@@ -201,8 +218,11 @@ def build(nom, persona="discrete_nature", age=42, seed=None, journal=None, genre
     # --- slides 2 a 5 : meme femme, en image-to-image ---
     ident = _description(tete, homme)
     for i, x in enumerate(plans[1:], start=2):
-        rap, n = _slide(i, x, raw, fin, ident, rappel, persona, homme, genre, age,
-                        rnd, slide_nb, dire)
+        if avant and time.time() > avant:
+            dire(f"    temps imparti atteint : carrousel arrete a {i - 1} photo(s)")
+            break
+        rap, n = _slide(i, x, raw, fin, ident, rappel, persona, homme, genre,
+                        rnd, slide_nb, dire, relances_jusqua=relances_jusqua)
         controles.append({"n": i, "relances": n, "rapport": rap})
 
     meta = {
@@ -227,8 +247,8 @@ def _description(tete, homme):
             "A different day and a different outfit. ")
 
 
-def _slide(i, x, raw, fin, ident, rappel, persona, homme, genre, age, rnd, slide_nb, dire,
-           reference=None):
+def _slide(i, x, raw, fin, ident, rappel, persona, homme, genre, rnd, slide_nb, dire,
+           reference=None, relances_jusqua=None):
     """Une photo en image-to-image depuis la photo de reference, controlee et
     relancee si besoin. Retourne (rapport, nb_relances)."""
     ref = reference or f"{raw}/1.jpg"
@@ -251,7 +271,8 @@ def _slide(i, x, raw, fin, ident, rappel, persona, homme, genre, age, rnd, slide
         download(first_image_url(body), f"{raw}/{i}.jpg")
         return True
 
-    fait, rap, n = _produire(essai, f"{raw}/{i}.jpg", ref, age, genre, dire, i)
+    fait, rap, n = _produire(essai, f"{raw}/{i}.jpg", ref, genre, dire, i,
+                             relances_jusqua=relances_jusqua)
     if not fait:
         return {}, n
     finish(f"{raw}/{i}.jpg", f"{fin}/{i}.jpg", persona=persona, force_nb=(slide_nb == i),
@@ -271,7 +292,8 @@ def _bilan(controles, dire):
 
 
 # --------------------------------------------------- photos supplementaires
-def ajouter(nom, combien=5, journal=None, seed=None, avant=None, depart=None):
+def ajouter(nom, combien=5, journal=None, seed=None, avant=None, depart=None,
+            relances_jusqua=None):
     """Ajoute des photos a un carrousel deja genere, a partir de SON visage.
 
     On ne regenere pas la personne : sa description de visage, ses signes
@@ -346,8 +368,8 @@ def ajouter(nom, combien=5, journal=None, seed=None, avant=None, depart=None):
         if avant and time.time() > avant:
             dire(f"    temps imparti atteint : {len(nouvelles)} photo(s) sur {combien}")
             break
-        rap, n = _slide(i, x, raw, fin, ident, rappel, persona, homme, genre, age,
-                        rnd, slide_nb, dire, reference=reference)
+        rap, n = _slide(i, x, raw, fin, ident, rappel, persona, homme, genre,
+                        rnd, slide_nb, dire, reference=reference, relances_jusqua=relances_jusqua)
         if not os.path.exists(f"{fin}/{i}.jpg"):
             continue
         nouvelles.append({"n": i, "scene": x["scene"], "lieu": x["decor"],
@@ -366,7 +388,7 @@ def ajouter(nom, combien=5, journal=None, seed=None, avant=None, depart=None):
 
 
 # --------------------------------------------------- refaire une seule photo
-def refaire(nom, numero, journal=None, seed=None):
+def refaire(nom, numero, journal=None, seed=None, relances_jusqua=None):
     """Refait la photo `numero` d'un carrousel, a la place de l'ancienne.
 
     La scene et son lieu sont conserves : ils sont deja consommes dans les
@@ -423,7 +445,8 @@ def refaire(nom, numero, journal=None, seed=None):
     dire(f"  {meta.get('prenom', nom)} : on refait la photo {numero} [{ancien['scene']}]")
     os.makedirs(raw, exist_ok=True)
     rap, n = _slide(numero, x, raw, fin, _description(meta["visage"], homme), rappel,
-                    persona, homme, genre, age, rnd, 0, dire, reference=reference)
+                    persona, homme, genre, rnd, 0, dire, reference=reference,
+                    relances_jusqua=relances_jusqua)
     if not os.path.exists(f"{fin}/{numero}.jpg"):
         raise SystemExit(f"La photo {numero} n'a pas pu etre refaite.")
 

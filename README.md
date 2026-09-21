@@ -54,7 +54,7 @@ Copier `.env.example` et y mettre sa clé. Le fichier `.env` n'est pas versionn�
 
 **0,21 $ le carrousel de 5 photos, environ 80 secondes.** Le contrôle ajoute
 0,006 $ et 25 secondes ; chaque photo qu'il fait refaire coûte 0,045 $ de plus.
-Mesuré sur un profil de 52 ans : trois photos refaites, soit 0,35 $ au total.
+Mesuré sur un profil de 58 ans : une photo refaite, soit 0,25 $ au total.
 
 Ces deux modèles ont été retenus après un banc d'essai sur 14 modèles
 text-to-image. Prix mesurés sur les autres candidats : `flux-2 klein 9B`
@@ -285,11 +285,44 @@ et les adverbes. Vérifié sur les 119 textes de la banque.
 Chaque photo est relue avant d'être gardée, sur l'image **brute** — le flou, le
 bruit et la double compression du post-traitement sont ajoutés exprès, et un juge
 les prendrait pour des défauts. Ce n'est pas théorique : sur la version dégradée
-d'une photo à trois bras, il ne les voit plus. Quatre questions : est-ce la même
-personne que sur la photo 1, le corps est-il possible, y a-t-il un élément qui ne
-peut pas exister, et la personne fait-elle son âge. Une photo recalée est refaite,
-deux fois au plus, avec la faute constatée réinjectée dans le prompt.
-`ATELIER_CONTROLE=0` désactive tout.
+d'une photo à trois bras, il ne les voit plus. Trois questions, toutes objectives :
+est-ce la même personne que sur la photo 1, le corps est-il possible, y a-t-il un
+élément qui ne peut pas exister. Une photo recalée est refaite, deux fois au plus,
+avec la faute constatée réinjectée dans le prompt. `ATELIER_CONTROLE=0` désactive
+tout.
+
+**L'âge n'est pas contrôlé, et c'est voulu.** Il l'a été, avec relance à la clé, et
+c'était une erreur à deux titres. C'est un avis et non un constat : le même visage
+était estimé 35 puis 40 ans d'un appel à l'autre. Et relancer n'y changeait rien :
+les photos 2 à 5 recopient le visage de la photo 1, et le modèle d'image rajeunit
+systématiquement au-delà de 55 ans. Sur une demande à 58 ans, huit relances
+d'affilée pour « paraît 45 ans » ont poussé la génération en ligne à 437 secondes ;
+Vercel l'a tuée à 300, au milieu de la quatrième photo, avant qu'elle ait rien
+enregistré.
+
+L'âge se règle maintenant **à la source**, dans la description du visage
+(`gen/visages.py`). Deux mécanismes :
+
+- les banques qui portent un âge — peau, cheveux, silhouette, allure — ne sont
+  tirées que parmi ce qui est plausible à cet âge. Tirées au hasard, elles
+  donnaient à une femme de 58 ans une peau lisse, des cheveux longs éclaircis par
+  le soleil et une silhouette « lean and fit » : le portrait d'une femme de 40 ans,
+  face auquel la phrase « elle a 58 ans » ne pesait rien ;
+- les signes de l'âge sont décrits tranche par tranche, en ce qui se voit : pattes
+  d'oie, sillons du nez à la bouche, ovale qui se relâche, peau du cou, taches sur
+  le dos des mains. Un modèle d'image rend ce qu'on lui décrit, pas un chiffre.
+
+Comparé sur les mêmes tirages à 58 ans : visages lisses de 45-50 ans avant, femmes
+de la fin de la cinquantaine après, toujours séduisantes ; sans surcharge à 45 ans,
+nettement sexagénaires à 64. Les taches de l'âge sont décrites sur les mains et non
+sur le visage : autorisées sur le visage, elles laissaient le modèle y semer trois
+ou quatre points sombres par photo, jamais les mêmes d'une photo à l'autre.
+
+**En ligne, une génération ne peut plus être tuée.** Plus aucune relance après
+150 secondes, plus aucune photo entamée après 235 : au pire, une photo imparfaite
+est gardée, ou le carrousel s'arrête à quatre photos — mais il est enregistré. Et un
+job resté « en cours » plus de 330 secondes est déclaré en échec : une fonction tuée
+ne peut pas écrire son propre échec, et l'interface l'attendait indéfiniment.
 
 Mesure sur 20 photos déjà générées : zéro faux positif sur le corps, et les vrais
 défauts attrapés — une femme de 49 ans au visage de 35, deux visages qui ont
@@ -336,9 +369,9 @@ noires de nuit a vu ses quatre suivantes partir chacune de son côté.
 
 La cohérence du visage se dégrade toujours à la génération, davantage au-delà de
 50 ans et quand les lumières des scènes tirées sont éloignées ; le contrôle la
-rattrape au lieu de l'empêcher. Il reste aussi un biais du modèle d'image vers la
-jeunesse que le prompt ne corrige qu'à moitié : à 52 ans demandés, le visage rendu
-en paraît 45.
+rattrape au lieu de l'empêcher. L'âge rendu dépend encore du tirage : d'un carrousel
+à l'autre, une femme de 58 ans peut paraître 55 ou 62, et les photos d'un même
+carrousel suivent toutes le visage de la première.
 
 ---
 

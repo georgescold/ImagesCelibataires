@@ -79,13 +79,18 @@ SOURCILS = [
 ]
 
 PEAU = [
- "clear skin with fine lines at the corners of the eyes",
+ # (texte, age mini, age maxi) : une peau lisse sur une femme de 58 ans en fait
+ # une femme de 40 — le modele suit ce qu'on lui decrit, pas le chiffre
+ ("clear skin with fine lines at the corners of the eyes", 30, 47),
  "a light scatter of freckles across the nose",
- "healthy skin with visible pores and a slight shine on the forehead",
- "smooth skin with faint laughter lines",
- "lightly tanned skin with a few small sun spots on the cheekbones",
- "even skin with a faint blush high on the cheeks",
- "well-kept skin with soft lines on the forehead",
+ ("healthy skin with visible pores and a slight shine on the forehead", 30, 54),
+ ("smooth skin with faint laughter lines", 30, 44),
+ ("lightly tanned skin with a few small sun spots on the cheekbones", 38, 70),
+ ("even skin with a faint blush high on the cheeks", 30, 50),
+ ("well-kept skin with soft lines on the forehead", 38, 58),
+ ("skin that has lost a little of its firmness, with fine crepey lines under the eyes", 52, 70),
+ ("sun-worn skin with faint freckles on the cheekbones", 55, 70),
+ ("soft mature skin with a fine network of lines, well looked after", 55, 70),
 ]
 
 # maquillage : les femmes du compte source ont toutes fait un effort
@@ -100,20 +105,56 @@ MAQUILLAGE = [
 
 CHEVEUX = [
  "shoulder-length chestnut hair, freshly coloured",
- "a well-cut silver bob, deliberately grey and well kept",
- "long dark hair in soft layers",
- "thick wavy shoulder-length hair",
- "a warm blonde balayage, well maintained",
+ ("a well-cut silver bob, deliberately grey and well kept", 50, 70),
+ ("long dark hair in soft layers", 30, 50),
+ ("thick wavy shoulder-length hair", 30, 55),
+ ("a warm blonde balayage, well maintained", 30, 62),
  "a blunt chin-length bob",
- "long dark hair pulled back into a neat ponytail",
+ ("long dark hair pulled back into a neat ponytail", 30, 50),
  "short curly hair with volume",
- "shoulder-length honey blonde hair",
- "hair dyed auburn red, glossy",
- "dark hair with a few deliberate grey streaks at the temples",
- "light brown hair with a side fringe",
- "long hair with sun-lightened ends",
- "a shoulder-length cut with a soft curtain fringe",
+ ("shoulder-length honey blonde hair", 30, 58),
+ ("hair dyed auburn red, glossy", 30, 52),
+ ("hair dyed a deep auburn red, the grey roots just starting to show", 52, 70),
+ ("dark hair with a few deliberate grey streaks at the temples", 42, 58),
+ ("light brown hair with a side fringe", 30, 55),
+ ("long hair with sun-lightened ends", 30, 44),
+ ("a shoulder-length cut with a soft curtain fringe", 30, 50),
+ ("salt-and-pepper hair cut in a short practical style", 55, 70),
+ ("blonde hair gone ash-grey at the roots, cut at the jaw", 52, 70),
+ ("short silver-white hair, neatly styled", 60, 70),
+ ("a short layered cut, dyed light brown, with grey showing at the parting", 52, 70),
 ]
+
+# Les signes de l'age, decrits tranche par tranche. C'est ici que l'age se joue :
+# un modele d'image rend ce qu'on lui decrit a voir, et « elle a 58 ans » ne pese
+# rien face a une peau lisse et des cheveux sans un fil gris. Mesure avant cette
+# table : une demande a 58 ans rendait des visages juges entre 35 et 45 ans, et
+# les relancer n'y changeait rien — les photos 2 a 5 recopient le visage de la 1.
+# (age maxi de la tranche, marqueurs)
+SIGNES_AGE = [
+ (44, "fine lines at the corners of her eyes when she smiles and the first faint lines on her forehead"),
+ (51, "crow's feet at the corners of her eyes, soft laugh lines from her nose to the corners of her mouth"
+      " and faint horizontal lines on her forehead"),
+ (57, "clear crow's feet, marked laugh lines from her nose to her mouth, fine lines above her upper lip,"
+      " a jawline that has started to soften and slightly crepey skin on her neck"),
+ (63, "deep crow's feet, marked lines from her nose to her mouth and at its corners, a softened jawline"
+      " with the beginning of jowls, loose crepey skin on her neck, and faint light-brown age spots on"
+      " the backs of her hands"),
+ (200, "deep wrinkles around her eyes and mouth, jowls along the jawline, thin crepey skin on her neck"
+       " and light-brown age spots on the backs of her hands"),
+]
+
+
+def pour_age(banque, age):
+    """Les entrees d'une banque plausibles a cet age. Une entree est un texte (tout
+    age) ou un triplet (texte, age mini, age maxi)."""
+    ok = [e for e in banque if isinstance(e, str) or e[1] <= age <= e[2]]
+    return [e if isinstance(e, str) else e[0] for e in (ok or banque)]
+
+
+def signes_age(table, age):
+    return next(m for maxi, m in table if age <= maxi)
+
 
 # signes particuliers. Ceux prefixes "GDB:" sont des grains de beaute :
 # le tirage n'en autorise qu'UN SEUL par visage (sinon le modele en seme partout).
@@ -137,25 +178,28 @@ SIGNES = [
 ]
 
 MORPHO = [
- "slim with a toned figure, she clearly exercises",
+ ("slim with a toned figure, she clearly exercises", 30, 55),
  "slender with narrow shoulders",
- "an athletic build with defined arms",
- "a curvy hourglass figure",
+ ("an athletic build with defined arms", 30, 50),
+ ("a curvy hourglass figure", 30, 60),
  "tall and slim",
  "petite and slim",
  "average build, well proportioned",
- "slim with long legs",
+ ("slim with long legs", 30, 50),
  "softly curvy, carrying a little weight but well proportioned",
- "lean and fit",
+ ("lean and fit", 30, 55),
+ ("a mature figure, a little fuller at the waist", 50, 70),
+ ("slim but softer than she once was, with slightly rounded shoulders", 55, 70),
 ]
 
 # niveau d'attrait : la majorite des femmes du compte source sont "ordinaires mais avenantes"
 ATTRAIT = [
- "She is a beautiful woman, the kind who turns heads, but in a natural everyday way rather than a magazine way.",
- "She is very pretty, with warm attractive features that people comment on.",
+ ("She is a beautiful woman, the kind who turns heads, but in a natural everyday way rather than a magazine way.", 30, 55),
+ ("She is very pretty, with warm attractive features that people comment on.", 30, 60),
  "She is a good-looking woman who has clearly kept herself in shape.",
- "She is strikingly attractive, with an open face and a warm smile.",
- "She is beautiful in a mature, self-assured way.",
+ ("She is strikingly attractive, with an open face and a warm smile.", 30, 55),
+ ("She is beautiful in a mature, self-assured way.", 45, 70),
+ ("She is an attractive woman who wears her age with elegance and ease.", 52, 70),
 ]
 
 
@@ -171,25 +215,29 @@ def visage(seed=None, age=42, avec_signes=False):
         r.shuffle(signes)
     else:
         signes = r.sample(autres, 2)
-    d = (f"A beautiful French woman of {age}. {r.choice(ATTRAIT)} {r.choice(MAQUILLAGE)} "
-            f"She is {r.choice(MORPHO)}. She has {r.choice(CHEVEUX)}. "
+    # Les banques qui portent un age (peau, cheveux, silhouette, allure) ne sont
+    # tirees que parmi ce qui est plausible a cet age : tirees au hasard, elles
+    # donnaient a une femme de 58 ans une peau lisse, des cheveux longs eclaircis
+    # par le soleil et une silhouette « lean and fit » — le portrait d'une femme de 40.
+    d = (f"A beautiful French woman of {age}. {r.choice(pour_age(ATTRAIT, age))} {r.choice(MAQUILLAGE)} "
+            f"She is {r.choice(pour_age(MORPHO, age))}. She has {r.choice(pour_age(CHEVEUX, age))}. "
             f"{r.choice(ORIGINES).capitalize()}. "
             f"Her face: {r.choice(VISAGE)}, {r.choice(NEZ)}, {r.choice(YEUX)}, "
             f"{r.choice(BOUCHE)}, {r.choice(SOURCILS)}. "
-            f"Her skin shows {r.choice(PEAU)}, with real visible pores and no retouching. "
+            f"Her skin shows {r.choice(pour_age(PEAU, age))}, with real visible pores and no retouching. "
+            f"The signs of her age are plainly visible: {signes_age(SIGNES_AGE, age)}. "
             f"Distinguishing features: {signes[0]}, and {signes[1]}. "
-            "Apart from the two features listed above, her skin is clear: do NOT add any extra moles, "
-            "beauty spots, skin tags or dark marks on her face, neck or chest. "
+            # Les taches de l'age sont decrites sur les MAINS, pas sur le visage : la
+            # regle ci-dessous doit rester stricte. Assouplie pour les laisser passer
+            # sur le visage, elle laissait le modele semer trois ou quatre points
+            # sombres par photo, jamais les memes d'une photo a l'autre — ce qui
+            # brouille la ressemblance que les deux signes particuliers doivent porter.
+            "Apart from the two features listed above, her face is free of marks: do NOT add any "
+            "extra moles, beauty spots, skin tags or dark marks on her face, neck or chest. "
             "She is a specific real individual with her own particular face, not a generic symmetrical "
             "AI face, not airbrushed, not a fashion model. She is attractive but her face is slightly "
             "asymmetric and human. She looks healthy and well groomed. "
-            # « no older than 42 » ne bornait que d'un cote : le modele satisfaisait la
-            # consigne en dessinant une femme de trente ans. Mesure avant correction :
-            # une demande a 52 ans rendait un visage juge a 30. L'age est donc ferme
-            # des deux cotes, et decrit par ce qui se voit.
-            f"She is {age} years old and she must look exactly {age}: the fine lines, the skin "
-            f"texture and the facial maturity of a real {age}-year-old French woman, never "
-            "younger. She is attractive for her age, not rejuvenated.")
+            f"She is {age} and looks it: attractive for her age, not rejuvenated, not retouched.")
     return (d, signes) if avec_signes else d
 
 
@@ -272,37 +320,42 @@ BOUCHE_H = [
 # la barbe joue ici le role que le maquillage joue pour les femmes :
 # c'est le detail d'entretien qui se lit immediatement
 BARBES = [
- "He has a short well-kept beard with a few grey hairs in it.",
+ ("He has a short well-kept beard with a few grey hairs in it.", 40, 70),
  "He has three-day stubble, deliberately kept.",
  "He is clean-shaven, with a faint shadow along the jaw.",
  "He has a full beard, trimmed but not sculpted.",
  "He has a moustache and light stubble on the cheeks.",
- "He has a close-trimmed beard that is greyer than his hair.",
+ ("He has a close-trimmed beard that is greyer than his hair.", 48, 70),
  "He is clean-shaven with a small nick from the razor on his jaw.",
+ ("He has a short beard gone almost entirely grey.", 55, 70),
 ]
 
 PEAU_H = [
- "clear skin with lines at the corners of the eyes",
+ ("clear skin with lines at the corners of the eyes", 30, 48),
  "a light scatter of freckles across the nose",
- "healthy skin with visible pores and a slight shine on the forehead",
+ ("healthy skin with visible pores and a slight shine on the forehead", 30, 55),
  "weathered skin from working outdoors",
  "lightly tanned skin with sun lines on the forehead",
- "even skin with a faint flush on the cheeks",
- "skin with soft horizontal lines on the forehead",
+ ("even skin with a faint flush on the cheeks", 30, 50),
+ ("skin with soft horizontal lines on the forehead", 35, 60),
+ ("skin that has lost some firmness, with deep lines on the forehead", 52, 70),
+ ("sun-worn skin, lined from years outdoors", 55, 70),
 ]
 
 CHEVEUX_H_V = [
  "short dark hair, freshly cut",
- "salt-and-pepper hair kept short",
- "thick brown hair pushed back",
- "hair receding at the temples, kept short",
- "a close buzz cut, mostly grey",
- "wavy hair grown just past the ears",
- "short blond hair with a side parting",
- "dark hair thinning at the crown, cut short",
+ ("salt-and-pepper hair kept short", 42, 70),
+ ("thick brown hair pushed back", 30, 52),
+ ("hair receding at the temples, kept short", 36, 70),
+ ("a close buzz cut, mostly grey", 50, 70),
+ ("wavy hair grown just past the ears", 30, 50),
+ ("short blond hair with a side parting", 30, 55),
+ ("dark hair thinning at the crown, cut short", 42, 70),
  "a shaved head",
- "curly short hair with volume",
- "light brown hair with a bit of length on top",
+ ("curly short hair with volume", 30, 48),
+ ("light brown hair with a bit of length on top", 30, 50),
+ ("thinning grey hair combed back", 58, 70),
+ ("white hair cut short, still thick", 60, 70),
 ]
 
 SIGNES_H = [
@@ -328,12 +381,13 @@ MORPHO_H = [
  "broad-shouldered and solidly built",
  "of average height, well proportioned",
  "stocky with thick forearms",
- "tall with a slight stoop",
- "athletic, he clearly trains",
+ ("tall with a slight stoop", 55, 70),
+ ("athletic, he clearly trains", 30, 55),
  "slim with narrow shoulders",
  "carrying a little weight but well proportioned",
- "short and compact, muscular",
+ ("short and compact, muscular", 30, 55),
  "long-limbed and wiry",
+ ("thickened at the waist, solid rather than fit", 50, 70),
 ]
 
 ATTRAIT_H = [
@@ -342,6 +396,20 @@ ATTRAIT_H = [
  "He is attractive in a rugged, lived-in way.",
  "He has an easy, reassuring face that people trust straight away.",
  "He is good-looking in a quiet, understated way.",
+ ("He is a handsome older man who wears his age with ease.", 52, 70),
+]
+
+# les signes de l'age, tranche par tranche, cf. SIGNES_AGE pour les femmes
+SIGNES_AGE_H = [
+ (44, "fine lines at the corners of his eyes and the first lines across his forehead"),
+ (51, "crow's feet at the corners of his eyes, lines from his nose to the corners of his mouth and"
+      " clear horizontal lines across his forehead"),
+ (57, "deep crow's feet, marked lines from his nose to his mouth, a heavier jawline and slightly"
+      " loose skin on his neck"),
+ (63, "deep lines around his eyes and mouth, the beginning of jowls along the jaw, loose skin on his"
+      " neck and faint light-brown age spots on the backs of his hands"),
+ (200, "deep wrinkles across his forehead and around his eyes and mouth, jowls, loose skin on his"
+       " neck and light-brown age spots on the backs of his hands"),
 ]
 
 
@@ -357,19 +425,18 @@ def visage_h(seed=None, age=45, avec_signes=False):
     else:
         signes = r.sample(autres, 2)
 
-    d = (f"A good-looking French man of {age}. {r.choice(ATTRAIT_H)} {r.choice(BARBES)} "
-         f"He is {r.choice(MORPHO_H)}. He has {r.choice(CHEVEUX_H_V)}. "
+    d = (f"A good-looking French man of {age}. {r.choice(pour_age(ATTRAIT_H, age))} {r.choice(pour_age(BARBES, age))} "
+         f"He is {r.choice(pour_age(MORPHO_H, age))}. He has {r.choice(pour_age(CHEVEUX_H_V, age))}. "
          f"{r.choice(ORIGINES_H).capitalize()}. "
          f"His face: {r.choice(VISAGE_H)}, {r.choice(NEZ_H)}, {r.choice(YEUX_H)}, {r.choice(BOUCHE_H)}. "
-         f"His skin shows {r.choice(PEAU_H)}, with real visible pores and no retouching. "
+         f"His skin shows {r.choice(pour_age(PEAU_H, age))}, with real visible pores and no retouching. "
+         f"The signs of his age are plainly visible: {signes_age(SIGNES_AGE_H, age)}. "
          f"Distinguishing features: {signes[0]}, and {signes[1]}. "
-         "Apart from the two features listed above, do NOT add any extra moles, "
-         "beauty spots or dark marks on his face or neck. "
+         # meme regle stricte que pour les femmes : les taches de l'age sont sur les mains
+         "Apart from the two features listed above, do NOT add any extra moles, beauty spots "
+         "or dark marks on his face or neck. "
          "He is a specific real individual with his own particular face, not a generic symmetrical "
          "AI face, not airbrushed, not a male model. He is attractive but his face is slightly "
          "asymmetric and human. He looks healthy and well groomed. "
-         # meme borne a deux cotes que pour les femmes, cf. visage()
-         f"He is {age} years old and he must look exactly {age}: the fine lines, the skin "
-         f"texture and the facial maturity of a real {age}-year-old French man, never younger. "
-         "He is attractive for his age, not rejuvenated.")
+         f"He is {age} and looks it: attractive for his age, not rejuvenated, not retouched.")
     return (d, signes) if avec_signes else d
