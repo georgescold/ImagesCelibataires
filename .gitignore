@@ -28,5 +28,8 @@ __pycache__/
 # ...sauf les avatars et blasons exportes par Compaatible : la carte de
 # personnalite en a besoin, en local comme en ligne.
 !cartes/**/*.png
+# ...et les icones de l'app installable (gen/faire_icones.py) : sans elles,
+# l'ecran d'accueil du telephone n'aurait pas d'icone.
+!web/icones/*.png
 Thumbs.db
 desktop.ini

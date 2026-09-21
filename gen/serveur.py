@@ -30,6 +30,13 @@ FAVORIS = os.path.join("gen", "_favoris.json")   # simple liste de noms
 # quel comme un deuxieme carrousel de la meme personne.
 LOT_SUPPLEMENTAIRE = 5
 
+STATIQUES = {
+    "/sw.js": ("sw.js", "application/javascript; charset=utf-8"),
+    "/web/manifest.webmanifest": (os.path.join("web", "manifest.webmanifest"),
+                                  "application/manifest+json; charset=utf-8"),
+    "/web/installer.js": (os.path.join("web", "installer.js"), "application/javascript; charset=utf-8"),
+}
+
 # Le nom de dossier arrive du navigateur. Sans ce garde-fou, un nom comme
 # "../../.." sortirait de l'arborescence : on n'accepte que des noms simples.
 NOM_VALIDE = re.compile(r"[A-Za-z0-9_-]{1,80}")
@@ -198,6 +205,20 @@ class H(BaseHTTPRequestHandler):
 
         if chemin == "/":
             return self._envoyer(200, "text/html; charset=utf-8", page())
+
+        # L'app installable : en ligne, Vercel sert ces fichiers tels quels depuis
+        # le depot ; ici on les sert aussi, sans quoi l'interface commune ferait
+        # des 404 sur son manifeste et ses icones. Liste fermee : rien d'autre du
+        # depot n'est expose.
+        statique = STATIQUES.get(chemin)
+        m = re.fullmatch(r"/web/icones/([a-z0-9-]{1,40}\.png)", chemin)
+        if m:
+            statique = (os.path.join("web", "icones", m.group(1)), "image/png")
+        if statique:
+            p, ctype = statique
+            if not os.path.exists(p):
+                return self._envoyer(404, "text/plain", "introuvable")
+            return self._envoyer(200, ctype, open(p, "rb").read(), {"Cache-Control": "no-cache"})
 
         if chemin == "/api/librairie":
             q = urlparse(self.path).query

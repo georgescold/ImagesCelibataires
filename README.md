@@ -111,6 +111,29 @@ L'interface en ligne est faite pour être utilisée au doigt, et vérifiée de 3
 (iPhone SE) à 1440 px : aucun défilement horizontal, aucune cible tactile sous
 44 px, aucun texte sous 13 px.
 
+**L'atelier s'installe comme une app**, sur l'écran d'accueil, en plein écran et
+avec son icône. Sur Android, Chrome propose l'installation : un bandeau
+« Installer l'atelier » en bas d'écran déclenche sa vraie boîte d'installation.
+Sur iPhone et iPad il n'existe aucune invitation qu'une page puisse déclencher —
+l'installation passe forcément par Partager, puis « Sur l'écran d'accueil » —
+alors le bandeau explique le geste. Il apparaît dès la page de connexion,
+c'est-à-dire dès la première ouverture sur le téléphone. Il ne s'affiche ni à la
+souris (le navigateur propose déjà l'installation dans sa barre d'adresse), ni une
+fois l'app installée, ni pendant 30 jours après un refus.
+
+Sur iOS, **une app installée a ses propres cookies**, séparés de ceux de Safari :
+il faut s'y reconnecter une fois après l'installation, puis tous les 30 jours,
+durée de la session.
+
+Le service worker (`sw.js`, à la racine parce qu'il ne contrôle que les pages
+situées sous son propre chemin) **ne met rien en cache**, et c'est voulu : l'atelier
+ne sert à rien hors ligne, et l'interface locale est relue à chaque requête pour
+être modifiable à chaud — un cache la figerait. Il ne fait que deux choses :
+permettre à Chrome d'envoyer son invitation, qui exige un gestionnaire `fetch`, et
+remplacer hors ligne la page d'erreur du navigateur par un message clair — ce qui
+compte dans une app installée, où il n'y a plus de barre d'adresse. Les icônes
+sortent de `python gen/faire_icones.py`.
+
 **« Télécharger » range la photo dans la pellicule, pas dans Fichiers.** Sur iOS,
 un lien de téléchargement dépose l'image dans l'app Fichiers, d'où il faut aller
 la rechercher pour l'enregistrer à la main dans Photos — alors que c'est depuis
@@ -210,6 +233,8 @@ faire transiter par une fonction coûtait 8,5 secondes par image.
 | `gen/pipeline.py` | Post-traitement « vraie photo de téléphone » |
 | `gen/sauvegarde.py` | Envoi des carrousels locaux vers Supabase |
 | `gen/faire_web.py` | Fabrique `web/app.html` depuis l'interface locale |
+| `gen/faire_icones.py` | Dessine les icônes de l'app installable |
+| `sw.js`, `web/manifest.webmanifest`, `web/installer.js` | L'app installable sur l'écran d'accueil |
 | `api/*.py` | Fonctions Vercel : bibliothèque, génération, extension, médias, session |
 | `web/*.html` | Interface en ligne et page de connexion |
 
