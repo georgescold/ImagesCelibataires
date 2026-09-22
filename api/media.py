@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Sert une photo depuis le bucket prive, via une URL signee."""
+"""Sert une photo depuis le bucket prive.
+
+Ce n'est plus qu'un repli : l'interface telecharge vignettes et photos pleine
+taille directement depuis le CDN du stockage, par les URL signees que fournit
+la bibliotheque. Elle ne passe par ici que si l'une d'elles a expire."""
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import os as _os, sys as _sys

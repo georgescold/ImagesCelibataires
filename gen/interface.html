@@ -303,6 +303,19 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 
 .vide{color:var(--doux); text-align:center; padding:56px 0; font-size:16px}
 
+/* --------------------------------------------------------------- annonces
+   Le retour d'un geste dont l'effet se passe ailleurs que sous le doigt : des
+   photos arrivées dans la galerie, une suppression refusée par le serveur. */
+.annonce{
+  position:fixed; left:50%; bottom:calc(18px + env(safe-area-inset-bottom)); z-index:40;
+  transform:translateX(-50%); width:max-content; max-width:calc(100vw - 32px);
+  background:var(--panneau-3); color:var(--texte);
+  border:1px solid var(--bord-vif); border-radius:var(--r);
+  padding:11px 16px; font-size:15px; line-height:1.45; text-align:center;
+  box-shadow:0 10px 30px rgba(0,0,0,.45);
+}
+.annonce.erreur{border-color:#7a3128; color:var(--erreur)}
+
 /* --------------------------------------------------- carte de personnalite */
 .champ.type{width:300px}
 .champ.prenom{width:220px}
@@ -528,6 +541,8 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
 
 </main>
 
+<div class="annonce" id="annonce" role="status" aria-live="polite" hidden></div>
+
 <script>
 const $ = s => document.querySelector(s);
 let FEMMES = [], ONGLET = 'actives';
@@ -549,6 +564,45 @@ const EXT = {};
 const echappe = t => String(t ?? '').replace(/[&<>"]/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
+// ------------------------------------------------------- adresses des images
+// En local, le serveur sert lui-même vignettes et photos. En ligne, la
+// bibliothèque fournit des URL signées du stockage, servies par son CDN à
+// Paris ; ces chemins-ci ne servent qu'en repli (faire_web.py les adapte).
+const REPLI_VIGNETTE = (nom, n) => `/vignette/${nom}/${n}.jpg`;
+const REPLI_PLEINE = (nom, n) => `/dl/${nom}/${n}.jpg`;
+// Une URL signée vaut deux heures ; passé ce délai-ci, on ne s'y fie plus.
+const FRAIS = 100 * 60e3;
+// Une vignette garde la même adresse d'un rechargement à l'autre : les URL
+// signées changent à chaque lecture de la bibliothèque, et le navigateur
+// retéléchargeait toutes les images après chaque action.
+const ADRESSES = new Map();            // "nom/n" -> {url, t}
+function vignetteDe(f, n){
+  const cle = `${f.nom}/${n}`, m = ADRESSES.get(cle);
+  if(m && Date.now() - m.t < FRAIS) return m.url;
+  const signee = f.vignettes && f.vignettes[n], t = f._lu || Date.now();
+  const url = signee && Date.now() - t < FRAIS ? signee : REPLI_VIGNETTE(f.nom, n);
+  ADRESSES.set(cle, {url, t});
+  return url;
+}
+// ?download= : le stockage répond « pièce jointe » — un clic télécharge la
+// photo au lieu de l'ouvrir, sous le bon nom de fichier.
+function pleineDe(f, n){
+  const signee = f.pleines && f.pleines[n];
+  if(!signee || Date.now() - (f._lu || 0) >= FRAIS) return REPLI_PLEINE(f.nom, n);
+  return `${signee}&download=${encodeURIComponent(`${f.nom}_${n}.jpg`)}`;
+}
+
+// ------------------------------------------------------------------ annonces
+let minuteurAnnonce = null;
+function annoncer(texte, erreur = false){
+  const z = $('#annonce');
+  z.textContent = texte;
+  z.classList.toggle('erreur', erreur);
+  z.hidden = false;
+  clearTimeout(minuteurAnnonce);
+  minuteurAnnonce = setTimeout(() => z.hidden = true, erreur ? 6000 : 3500);
+}
+
 function vue(f, n){
   // Les cinq textes reprennent en boucle au-delà de la cinquième photo : une
   // personne n'a qu'une identité, et un second lot de cinq se poste tel quel.
@@ -558,7 +612,7 @@ function vue(f, n){
   const txt = t.length ? t[(n - 1) % t.length] : '';
   return `<div class="vue" id="vue-${f.nom}-${n}">
     <div class="cadre">
-      <img src="/vignette/${f.nom}/${n}.jpg" alt="Photo ${n} de ${echappe(f.prenom)}">
+      <img src="${vignetteDe(f, n)}" alt="Photo ${n} de ${echappe(f.prenom)}" loading="lazy" decoding="async">
       <button class="refaire" data-refaire="${f.nom}" data-numero="${n}"
         ${f.extensible ? '' : 'disabled'}
         title="${f.extensible
@@ -569,7 +623,8 @@ function vue(f, n){
     <div class="legende">${echappe(txt)}</div>
     ${NOTES_VUE.has(`${f.nom}-${n}`) ? `<div class="vue-note">${echappe(NOTES_VUE.get(`${f.nom}-${n}`))}</div>` : ''}
     <div class="vue-actions">
-      <a class="bouton telecharge minuscule" href="/dl/${f.nom}/${n}.jpg" download data-photo="${f.nom}_${n}.jpg">Télécharger</a>
+      <a class="bouton telecharge minuscule" href="${pleineDe(f, n)}" download="${f.nom}_${n}.jpg"
+        data-photo="${f.nom}_${n}.jpg" data-repli="${REPLI_PLEINE(f.nom, n)}">Télécharger</a>
       <button class="bouton minuscule" data-copie="${echappe(txt)}">Copier le texte</button>
     </div>
   </div>`;
@@ -649,24 +704,64 @@ const libelle = (texte, nb) => `${texte}<span class="nb">${nb}</span>`;
 // texte, sinon le message d'erreur affiche « <!DOCTYPE HTML><html… ».
 const sansBalises = t => String(t).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
 
+// ------------------------------------------------------------ bibliothèque
+// Chaque onglet est gardé en mémoire : on y revient instantanément, et sa
+// version à jour arrive en arrière-plan. Les deux autres onglets sont lus dès
+// le premier affichage, pour que le premier passage soit instantané aussi.
+const MEMO = {};                       // onglet -> fiches
+let COMPTES = null;                    // {actives, favoris, archives}
+let PERSONAS = [], derniereLecture = 0;
+// Chaque action compte : une lecture partie avant elle rendrait la liste
+// d'avant, et ferait réapparaître la fiche qu'on vient de supprimer.
+let ACTIONS = 0;
+
+function afficherComptes(){
+  const c = COMPTES;
+  if(!c) return;
+  $('#compte').textContent = `${c.actives} à poster · ${c.favoris} favori${c.favoris > 1 ? 's' : ''} · ${c.archives} archivée${c.archives > 1 ? 's' : ''}`;
+  $('#ongActives').innerHTML = libelle('À poster', c.actives);
+  $('#ongFavoris').innerHTML = libelle('Favoris', c.favoris);
+  $('#ongArchives').innerHTML = libelle('Archivées', c.archives);
+}
+
+function remplirPersonas(){
+  const sel = $('#persona');
+  if(!sel.options.length) PERSONAS.forEach(p => sel.add(new Option(p.replace(/_/g,' '), p)));
+}
+
+// Lit un onglet et le range en mémoire. Rend false si une action a eu lieu
+// pendant la lecture : sa réponse est périmée, on l'ignore.
+async function lire(quel){
+  const avant = ACTIONS;
+  const r = await fetch('/api/librairie' + REQUETE[quel]);
+  // la réponse n'est pas toujours du JSON : une fonction qui plante renvoie du HTML
+  const brut = await r.text();
+  let d = {};
+  try{ d = JSON.parse(brut); }catch(e){}
+  if(!r.ok || !Array.isArray(d.femmes)) throw new Error(d.erreur || `${r.status} ${sansBalises(brut)}`);
+  if(avant !== ACTIONS) return false;
+  const t = Date.now();
+  d.femmes.forEach(f => f._lu = t);          // l'âge de ses adresses signées
+  MEMO[quel] = d.femmes;
+  COMPTES = {actives: d.nb_actives, favoris: d.nb_favoris, archives: d.nb_archivees};
+  LOT = d.lot || LOT;
+  PERSONAS = d.personas || PERSONAS;
+  remplirPersonas();
+  derniereLecture = t;
+  memoriser();
+  return true;
+}
+
 async function charger(){
+  const quel = ONGLET;
   try{
-    const r = await fetch('/api/librairie' + REQUETE[ONGLET]);
-    // la réponse n'est pas toujours du JSON : une fonction qui plante renvoie du HTML
-    const brut = await r.text();
-    let d = {};
-    try{ d = JSON.parse(brut); }catch(e){}
-    if(!r.ok || !Array.isArray(d.femmes)) throw new Error(d.erreur || `${r.status} ${sansBalises(brut)}`);
-    FEMMES = d.femmes;
-    LOT = d.lot || LOT;
-    const sel = $('#persona');
-    if(!sel.options.length) d.personas.forEach(p => sel.add(new Option(p.replace(/_/g,' '), p)));
-    $('#compte').textContent = `${d.nb_actives} à poster · ${d.nb_favoris} favori${d.nb_favoris > 1 ? 's' : ''} · ${d.nb_archivees} archivée${d.nb_archivees > 1 ? 's' : ''}`;
-    $('#ongActives').innerHTML = libelle('À poster', d.nb_actives);
-    $('#ongFavoris').innerHTML = libelle('Favoris', d.nb_favoris);
-    $('#ongArchives').innerHTML = libelle('Archivées', d.nb_archivees);
+    if(!await lire(quel) || quel !== ONGLET) return;
+    FEMMES = MEMO[quel];
+    afficherComptes();
     rendre();
   }catch(err){
+    // Une liste déjà affichée vaut mieux qu'un écran d'erreur : on la garde.
+    if(quel !== ONGLET || MEMO[quel]) return;
     // Sans ce garde-fou, la moindre panne laissait « Chargement… » à l'écran
     // indéfiniment, sans dire ce qui n'allait pas (base en pause, réseau du
     // téléphone qui décroche). Il avait été ajouté à la main dans web/app.html,
@@ -678,12 +773,56 @@ async function charger(){
   }
 }
 
+// Après le premier affichage : les autres onglets, en arrière-plan.
+function prechargerOnglets(){
+  for(const o of Object.keys(REQUETE)) if(o !== ONGLET && !MEMO[o]) lire(o).catch(() => {});
+}
+
+// Tout relire : l'onglet affiché, et les autres en arrière-plan.
+function relire(){
+  charger();
+  for(const o of Object.keys(REQUETE)) if(o !== ONGLET) lire(o).catch(() => {});
+}
+
+// La bibliothèque est aussi gardée sur l'appareil : à la réouverture de l'app,
+// elle s'affiche aussitôt, et la version à jour la remplace dès qu'elle arrive.
+// Pas au-delà de FRAIS : ses adresses d'images auraient expiré.
+const INSTANTANE = 'atelier-bibliotheque';
+function memoriser(){
+  try{
+    localStorage.setItem(INSTANTANE, JSON.stringify({t: Date.now(), memo: MEMO, comptes: COMPTES,
+                                                     lot: LOT, personas: PERSONAS}));
+  }catch(err){}
+}
+function reprendre(){
+  let s = null;
+  try{ s = JSON.parse(localStorage.getItem(INSTANTANE) || 'null'); }catch(err){}
+  if(!s || !s.memo || Date.now() - s.t > FRAIS) return;
+  Object.assign(MEMO, s.memo);
+  COMPTES = s.comptes;
+  LOT = s.lot || LOT;
+  PERSONAS = s.personas || [];
+  remplirPersonas();
+  afficherComptes();
+  if(MEMO[ONGLET]){ FEMMES = MEMO[ONGLET]; rendre(); }
+}
+
+// Les adresses signées expirent : une page restée ouverte relit la
+// bibliothèque de temps en temps, et en revenant au premier plan.
+setInterval(() => { if(document.visibilityState === 'visible') relire(); }, 20 * 60e3);
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible' && Date.now() - derniereLecture > 5 * 60e3) relire();
+});
+
 function onglet(quel){
   ONGLET = quel;
   affichees = PAR_PAGE;
   $('#ongActives').classList.toggle('actif', quel === 'actives');
   $('#ongFavoris').classList.toggle('actif', quel === 'favoris');
   $('#ongArchives').classList.toggle('actif', quel === 'archives');
+  // la version en mémoire tout de suite, la version à jour ensuite
+  if(MEMO[quel]){ FEMMES = MEMO[quel]; rendre(); }
+  else $('#librairie').innerHTML = '<div class="vide">Chargement…</div>';
   charger();
 }
 $('#ongActives').onclick = () => onglet('actives');
@@ -692,45 +831,105 @@ $('#ongArchives').onclick = () => onglet('archives');
 
 $('#filtre').addEventListener('input', () => { affichees = PAR_PAGE; rendre(); });
 
+// ------------------------------------------- actions : tout de suite à l'écran
+// Archiver, restaurer, supprimer, (dé)favoriser s'affichent immédiatement : on
+// n'attend plus la réponse du serveur, qui figeait le bouton une à deux
+// secondes. La requête part en arrière-plan, dans l'ordre des gestes pour une
+// même fiche ; si elle échoue, un message le dit, et la bibliothèque est relue
+// telle que le serveur la connaît.
+
+// En local, une route par action ; en ligne, une seule fonction (/api/action) :
+// faire_web.py remplace ce corps.
+function envoyerAction(nom, quoi){
+  const route = {supprimer:'/api/supprimer', archiver:'/api/archiver', restaurer:'/api/restaurer',
+                 favori:'/api/favori', defavori:'/api/favori'}[quoi];
+  return fetch(route, {method:'POST', headers:{'Content-Type':'application/json'},
+                       body: JSON.stringify({nom, favori: quoi === 'favori'})});
+}
+
+// l'ordre de la bibliothèque : de la plus récente à la plus ancienne
+const inserer = (liste, f) => [...liste, f].sort((x, y) => String(y.cree || '').localeCompare(String(x.cree || '')));
+
+// La même action appliquée à la liste en mémoire d'un onglet.
+function appliquer(liste, onglet, f, quoi){
+  const sans = () => liste.filter(x => x.nom !== f.nom);
+  const avec = champs => liste.some(x => x.nom === f.nom)
+    ? liste.map(x => x.nom === f.nom ? {...x, ...champs} : x) : null;
+  if(quoi === 'supprimer') return sans();
+  if(quoi === 'archiver' || quoi === 'restaurer'){
+    const archivee = quoi === 'archiver';
+    if(onglet === 'favoris') return avec({archivee}) || liste;
+    if(onglet === (archivee ? 'actives' : 'archives')) return sans();
+    return avec({archivee}) || inserer(liste, {...f, archivee});
+  }
+  const favori = quoi === 'favori';
+  if(onglet === 'favoris') return favori ? (avec({favori}) || inserer(liste, {...f, favori})) : sans();
+  return avec({favori}) || liste;
+}
+
+function compter(f, quoi){
+  const c = COMPTES;
+  if(!c) return;
+  if(quoi === 'supprimer'){ c[f.archivee ? 'archives' : 'actives']--; if(f.favori) c.favoris--; }
+  else if(quoi === 'archiver'){ c.actives--; c.archives++; }
+  else if(quoi === 'restaurer'){ c.archives--; c.actives++; }
+  else c.favoris += quoi === 'favori' ? 1 : -1;
+}
+
+const ECHEC = {supprimer:'Suppression refusée', archiver:'Archivage refusé', restaurer:'Restauration refusée',
+               favori:'Favori refusé', defavori:'Favori refusé'};
+const FILES = {};                      // nom -> dernière requête : l'ordre des gestes
+let EN_VOL = 0, relecture = null;
+
+function agir(nom, quoi){
+  const f = FEMMES.find(x => x.nom === nom);
+  if(!f) return;
+  ACTIONS++;
+  compter(f, quoi);
+  for(const o of Object.keys(MEMO)) MEMO[o] = appliquer(MEMO[o], o, f, quoi);
+  FEMMES = MEMO[ONGLET] || appliquer(FEMMES, ONGLET, f, quoi);
+  afficherComptes();
+  rendre();
+  memoriser();
+
+  EN_VOL++;
+  FILES[nom] = (FILES[nom] || Promise.resolve()).then(async () => {
+    let echec = null;
+    try{
+      const r = await envoyerAction(nom, quoi);
+      const d = await r.json().catch(() => ({}));
+      if(!r.ok || d.erreur) echec = d.erreur || `erreur ${r.status}`;
+    }catch(err){
+      echec = 'réseau injoignable';
+    }
+    if(echec) annoncer(`${ECHEC[quoi]} pour ${f.prenom || nom} : ${echec}`, true);
+    // Plus rien en route : on relit ce que le serveur sait. Sans effet visible
+    // si tout est passé ; c'est ce qui annule à l'écran ce qui a échoué.
+    if(--EN_VOL === 0){
+      clearTimeout(relecture);
+      relecture = setTimeout(relire, echec ? 0 : 400);
+    }
+  });
+}
+
 document.addEventListener('click', async e => {
   const sup = e.target.closest('[data-supprime]');
   if(sup){
     if(!confirm(`Supprimer le carrousel de ${sup.dataset.qui} ?
 
 Les 5 photos partent dans gen/_corbeille, tu peux encore les récupérer à la main.`)) return;
-    sup.disabled = true;
-    const r = await fetch('/api/supprimer', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({nom: sup.dataset.supprime})
-    });
-    const d = await r.json();
-    if(d.erreur){ sup.disabled = false; $('#erreur').textContent = d.erreur; return; }
-    charger();
+    agir(sup.dataset.supprime, 'supprimer');
     return;
   }
   const a = e.target.closest('[data-archive]');
   if(a){
-    a.disabled = true;
     // l'etat vient du bouton, pas de l'onglet : dans « Favoris » les deux se cotoient
-    const r = await fetch(a.dataset.archivee === '1' ? '/api/restaurer' : '/api/archiver', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({nom: a.dataset.archive})
-    });
-    const d = await r.json();
-    if(d.erreur){ a.disabled = false; $('#erreur').textContent = d.erreur; return; }
-    charger();
+    agir(a.dataset.archive, a.dataset.archivee === '1' ? 'restaurer' : 'archiver');
     return;
   }
   const fav = e.target.closest('[data-favori]');
   if(fav){
-    fav.disabled = true;
-    const r = await fetch('/api/favori', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({nom: fav.dataset.favori, favori: fav.dataset.aimee !== '1'})
-    });
-    const d = await r.json();
-    if(d.erreur){ fav.disabled = false; $('#erreur').textContent = d.erreur; return; }
-    charger();
+    agir(fav.dataset.favori, fav.dataset.aimee === '1' ? 'defavori' : 'favori');
     return;
   }
   const plus = e.target.closest('[data-plus]');
@@ -773,27 +972,95 @@ function copierALAncienne(texte){
   });
 }
 
-// ------------------------------------------------ enregistrer dans la pellicule
-// Sur iPhone et iPad, un lien de téléchargement range la photo dans l'app
-// Fichiers, d'où il faut aller la rechercher pour l'enregistrer à la main dans
-// Photos — alors que c'est depuis la pellicule qu'on poste sur TikTok. La
-// feuille de partage du système propose, elle, « Enregistrer l'image » (ou
-// « Enregistrer 5 images »), qui les y range directement. On la préfère donc
-// sur un appareil tactile qui sait partager des fichiers. Ailleurs — et à la
-// souris, où la feuille de partage de Windows serait une surprise — le lien
-// garde son comportement ordinaire.
-const PARTAGE = matchMedia('(pointer: coarse)').matches && !!navigator.canShare && (() => {
+// ------------------------------------------------ enregistrer dans la galerie
+// Trois appareils, trois chemins :
+// - iPhone et iPad : un lien de téléchargement y range la photo dans l'app
+//   Fichiers, d'où il faut aller la rechercher à la main. La feuille de partage
+//   propose, elle, « Enregistrer l'image » (ou « Enregistrer 5 images »), qui la
+//   range dans Photos : c'est le seul chemin vers la pellicule qu'une page ait.
+// - Android : c'est l'inverse. La feuille de partage n'y propose que des applis
+//   (WhatsApp, Drive…), jamais la galerie : les photos n'arrivaient nulle part.
+//   Un vrai téléchargement du JPEG, lui, arrive dans « Download », que la galerie
+//   et le sélecteur de photos de TikTok montrent aussitôt. « Tout télécharger »
+//   y envoie chaque photo plutôt qu'un zip, qu'aucune galerie n'ouvre.
+// - À la souris : le lien garde son comportement ordinaire (la photo, ou le zip).
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);   // l'iPad se présente en Mac
+const PARTAGE = IOS && !!navigator.canShare && (() => {
   try{ return navigator.canShare({files: [new File([new Blob()], 'x.jpg', {type: 'image/jpeg'})]}); }
   catch(err){ return false; }
 })();
+const DIRECT = !IOS && matchMedia('(pointer: coarse)').matches;
 
-// Safari n'accepte de partager que dans la foulée d'un geste. Si le
-// téléchargement des images a duré, il refuse (NotAllowedError) : on garde
-// alors les fichiers prêts, et le bouton demande un second toucher, qui
-// partage tout de suite, sans rien attendre.
+// Les photos d'un lien : la sienne, ou toutes celles de la fiche.
+function photosDe(lien){
+  const liens = lien.dataset.tout ? [...lien.closest('.femme').querySelectorAll('a[data-photo]')] : [lien];
+  return liens.map(a => ({url: a.href, repli: a.dataset.repli, nom: a.dataset.photo}));
+}
+
+// Chaque photo depuis le stockage ; si son adresse signée a expiré, par la
+// fonction qui la sert, plus lente mais toujours valable.
+function recuperer(photos){
+  return Promise.all(photos.map(async p => {
+    let r = await fetch(p.url).catch(() => null);
+    if((!r || !r.ok) && p.repli) r = await fetch(p.repli);
+    if(!r || !r.ok) throw new Error(r ? `erreur ${r.status}` : 'réseau injoignable');
+    return new File([await r.blob()], p.nom, {type: 'image/jpeg'});
+  }));
+}
+
+// Le téléchargement commence dès que le doigt touche le bouton, pas quand il
+// se relève : une ou deux centaines de millisecondes de gagnées.
+const AVANCE = new WeakMap();
+document.addEventListener('pointerdown', e => {
+  if(!PARTAGE && !DIRECT) return;
+  const lien = e.target.closest('a[data-photo], a[data-tout]');
+  if(!lien || AVANCE.has(lien) || lien.classList.contains('travaille')) return;
+  const promesse = recuperer(photosDe(lien));
+  promesse.catch(() => {});
+  AVANCE.set(lien, promesse);
+}, {passive: true});
+
+function fichiersDe(lien){
+  const promesse = AVANCE.get(lien) || recuperer(photosDe(lien));
+  AVANCE.delete(lien);
+  return promesse;
+}
+
+// Android : chaque photo devient un vrai téléchargement.
+async function versGalerie(lien){
+  if(lien.classList.contains('travaille')) return;
+  lien.classList.add('travaille');
+  try{
+    const fichiers = await fichiersDe(lien);
+    for(let i = 0; i < fichiers.length; i++){
+      // Chrome laisse tomber des téléchargements lancés trop serrés
+      if(i) await new Promise(ok => setTimeout(ok, 250));
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(fichiers[i]);
+      a.download = fichiers[i].name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    }
+    annoncer(fichiers.length > 1
+      ? `${fichiers.length} photos téléchargées — galerie, album Download`
+      : 'Photo téléchargée — galerie, album Download');
+  }catch(err){
+    annoncer('Téléchargement impossible : ' + (err.message || err), true);
+  }finally{
+    lien.classList.remove('travaille');
+  }
+}
+
+// iPhone et iPad. Safari n'accepte de partager que dans la foulée d'un geste :
+// si les photos ont mis trop longtemps à arriver, il refuse (NotAllowedError).
+// On garde alors les fichiers prêts, et le bouton demande un second toucher,
+// qui partage tout de suite, sans rien attendre.
 const PRETS = new WeakMap();
 
-async function versPellicule(lien, adresses, noms){
+async function versPellicule(lien){
   const prets = PRETS.get(lien);
   if(prets){
     PRETS.delete(lien);
@@ -804,11 +1071,7 @@ async function versPellicule(lien, adresses, noms){
   lien.classList.add('travaille');
   let fichiers;
   try{
-    fichiers = await Promise.all(adresses.map(async (u, i) => {
-      const r = await fetch(u);
-      if(!r.ok) throw new Error(r.status);
-      return new File([await r.blob()], noms[i], {type: 'image/jpeg'});
-    }));
+    fichiers = await fichiersDe(lien);
   }catch(err){
     lien.classList.remove('travaille');
     location.href = lien.href;          // le téléchargement ordinaire, en dernier recours
@@ -829,16 +1092,11 @@ async function versPellicule(lien, adresses, noms){
 
 // En phase de capture, pour passer avant le comportement par défaut du lien.
 document.addEventListener('click', e => {
-  if(!PARTAGE) return;
+  if(!PARTAGE && !DIRECT) return;
   const lien = e.target.closest('a[data-photo], a[data-tout]');
   if(!lien) return;
   e.preventDefault();
-  if(lien.dataset.tout){
-    const photos = [...lien.closest('.femme').querySelectorAll('a[data-photo]')];
-    versPellicule(lien, photos.map(a => a.href), photos.map(a => a.dataset.photo));
-  }else{
-    versPellicule(lien, [lien.href], [lien.dataset.photo]);
-  }
+  (PARTAGE ? versPellicule : versGalerie)(lien);
 }, true);
 
 // ------------------------------------------- refaire une photo en particulier
@@ -860,6 +1118,7 @@ function rafraichir(nom, n){
   if(!img) return;
   const u = img.src.split('#')[0];
   img.src = u + (u.includes('?') ? '&' : '?') + 'r=' + Date.now();
+  ADRESSES.set(`${nom}/${n}`, {url: img.src, t: Date.now()});   // et la garde aux redessins suivants
 }
 
 // L'échec d'une photo s'écrit sous CETTE photo. Écrit en haut de page, dans le
@@ -909,6 +1168,7 @@ async function refaireUne(bouton){
       noteVue(nom, n, (j.erreur || 'La régénération a échoué.').split('\n')[0]);
       return;
     }
+    ADRESSES.delete(`${nom}/${n}`);   // l'ancienne adresse resservirait l'ancienne image
     await charger();          // redessine la carte, puis on force l'image
     rafraichir(nom, n);
     solde();
@@ -1148,7 +1408,8 @@ $('#carteGo').addEventListener('click', async () => {
   }
 });
 
-charger();
+reprendre();                           // la dernière bibliothèque connue, aussitôt
+charger().then(prechargerOnglets);
 solde();
 chargerTypes();
 suivreGenerations();

@@ -189,16 +189,27 @@ remplacer hors ligne la page d'erreur du navigateur par un message clair — ce 
 compte dans une app installée, où il n'y a plus de barre d'adresse. Les icônes
 sortent de `python gen/faire_icones.py`.
 
-**« Télécharger » range la photo dans la pellicule, pas dans Fichiers.** Sur iOS,
-un lien de téléchargement dépose l'image dans l'app Fichiers, d'où il faut aller
-la rechercher pour l'enregistrer à la main dans Photos — alors que c'est depuis
-la pellicule qu'on poste. Au doigt, « Télécharger » ouvre donc la feuille de
-partage du système, qui propose « Enregistrer l'image » ; « Tout télécharger » y
-envoie toutes les photos d'un coup (« Enregistrer 13 images ») au lieu d'un zip.
-Safari n'accepte de partager que dans la foulée d'un geste : si les images ont
-mis trop longtemps à arriver, le bouton affiche « Toucher pour enregistrer », et
-ce second toucher partage aussitôt, sans rien retélécharger. À la souris, rien ne
-change — la feuille de partage de Windows serait une surprise.
+**« Télécharger » range la photo dans la galerie** — par un chemin différent sur
+chaque système, parce que ce qui marche sur l'un échoue sur l'autre :
+
+- **Android** : un vrai téléchargement du JPEG, qui arrive dans l'album
+  « Download » de la galerie, et en tête du sélecteur de photos de TikTok.
+  « Tout télécharger » y envoie chaque photo, et non un zip, qu'aucune galerie
+  n'ouvre ; Chrome demande une fois l'autorisation d'enregistrer plusieurs
+  fichiers. L'atelier ouvrait auparavant la feuille de partage, comme sur iOS :
+  sur Android elle ne propose que des applis (WhatsApp, Drive…), jamais la
+  galerie, et les photos n'arrivaient nulle part.
+- **iPhone et iPad** : un lien de téléchargement dépose l'image dans l'app
+  Fichiers, d'où il faut aller la rechercher à la main. « Télécharger » ouvre donc
+  la feuille de partage, qui propose « Enregistrer l'image » (« Enregistrer 13
+  images » pour tout le carrousel) : c'est le seul chemin vers Photos qu'une page
+  web ait. Safari n'accepte de partager que dans la foulée d'un geste : si les
+  images ont mis trop longtemps à arriver, le bouton affiche « Toucher pour
+  enregistrer », et ce second toucher partage aussitôt.
+- **À la souris** : un lien ordinaire, la photo ou le zip.
+
+Dans les deux premiers cas, les photos partent dès que le doigt touche le bouton,
+pas quand il se relève, et viennent directement du CDN du stockage.
 
 **« Copier le texte »** passe par le presse-papiers moderne et, s'il refuse, par
 une zone de texte sélectionnée — sur iOS, `select()` seul n'y sélectionne rien.
@@ -265,10 +276,42 @@ la carte est restée cassée en ligne jusqu'à ce qu'on s'en aperçoive. Elles v
 maintenant dans la source et dans les règles, et le fichier généré le rappelle
 en tête.
 
-Les vignettes sont servies directement par le CDN Supabase, avec des URL
-signées fabriquées **en un seul appel groupé**. Les signer une par une
-demandait 165 requêtes enchaînées, soit 24 secondes de bibliothèque ; les
-faire transiter par une fonction coûtait 8,5 secondes par image.
+Les vignettes **et les photos pleine taille** sont servies directement par le CDN
+Supabase, avec des URL signées fabriquées **en un seul appel groupé**. Les signer
+une par une demandait 165 requêtes enchaînées, soit 24 secondes de bibliothèque ;
+les faire transiter par une fonction coûtait 8,5 secondes par image. Les photos
+pleine taille passaient encore par une fonction jusqu'ici — treize allers-retours
+pour un « Tout télécharger » ; `api/media.py` n'est plus qu'un repli, pour une
+adresse expirée. Suffixée de `&download=nom.jpg`, une URL signée répond « pièce
+jointe » : un clic télécharge au lieu d'ouvrir l'image.
+
+### La vitesse
+
+**Les fonctions tournent à Paris** (`"regions": ["cdg1"]` dans `vercel.json`, une
+seule région sur le plan Hobby). Par défaut, Vercel les place à Washington, alors
+que la base est à Paris : chaque lecture traversait l'Atlantique deux fois. Mesuré
+avant le changement : 0,6 s pour la requête la plus simple, 1,2 à 1,6 s pour la
+bibliothèque, qui en fait quatre.
+
+**Rien n'attend le serveur à l'écran.** Archiver, restaurer, supprimer et mettre
+en favori s'affichent en moins de 2 ms ; la requête part en arrière-plan, dans
+l'ordre des gestes pour une même fiche. Si elle échoue, un message le dit et la
+bibliothèque est relue telle que le serveur la connaît — la fiche revient.
+Chaque onglet est gardé en mémoire, et les deux autres sont lus dès le premier
+affichage : on passe de l'un à l'autre instantanément, la version à jour arrivant
+derrière. Une lecture partie avant une action est ignorée, sans quoi elle ferait
+réapparaître la fiche qu'on vient de supprimer.
+
+**Une vignette garde la même adresse** tant que sa signature est valable. Les
+URL signées changent à chaque lecture de la bibliothèque, et le navigateur
+retéléchargeait toutes les images après chaque action.
+
+**La bibliothèque est gardée sur l'appareil** (`localStorage`, quelques Ko par
+fiche) : à la réouverture de l'app, elle s'affiche en moins d'une
+milliseconde, et la version à jour la remplace dès qu'elle arrive. Pas au-delà de
+100 minutes : les adresses des images, signées pour deux heures, auraient expiré.
+La bibliothèque ne transporte plus les plans des photos ni la description du
+visage, que l'écran n'affiche pas.
 
 ---
 

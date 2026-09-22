@@ -21,46 +21,20 @@ CIBLE = os.path.join(RACINE, "web", "app.html")
 # sinon c'est que l'interface locale a change et que la transformation
 # ne suit plus : on echoue bruyamment plutot que de livrer du HTML casse.
 REGLES = [
-    (r'src="/vignette/\$\{f\.nom\}/\$\{n\}\.jpg"',
-     'src="${(f.vignettes && f.vignettes[n]) || `/api/media?nom=${f.nom}&n=${n}`}"',
-     "vignettes"),
-    (r'href="/dl/\$\{f\.nom\}/\$\{n\}\.jpg" download',
-     'href="/api/media?nom=${f.nom}&n=${n}&plein=1" download',
-     "telechargement d'une photo"),
+    # images : en ligne, la bibliotheque fournit des URL signees du stockage ;
+    # ces chemins ne servent qu'en repli, par la fonction qui sert les photos
+    (r"`/vignette/\$\{nom\}/\$\{n\}\.jpg`",
+     "`/api/media?nom=${nom}&n=${n}`",
+     "repli des vignettes"),
+    (r"`/dl/\$\{nom\}/\$\{n\}\.jpg`",
+     "`/api/media?nom=${nom}&n=${n}&plein=1`",
+     "repli des photos pleine taille"),
     (r'href="/zip/\$\{f\.nom\}"',
      'href="/api/archive?nom=${f.nom}"',
      "telechargement du carrousel"),
     (r"fetch\('/api/job/' \+ job\)",
      "fetch('/api/job?id=' + job)",
      "avancement"),
-    (r"fetch\(a\.dataset\.archivee === '1' \? '/api/restaurer' : '/api/archiver', \{\s*"
-     r"method:'POST', headers:\{'Content-Type':'application/json'\},\s*"
-     r"body: JSON\.stringify\(\{nom: a\.dataset\.archive\}\)\s*\}\)",
-     "fetch('/api/action', {\n"
-     "      method:'POST', headers:{'Content-Type':'application/json'},\n"
-     "      body: JSON.stringify({nom: a.dataset.archive,\n"
-     "                            action: a.dataset.archivee === '1' ? 'restaurer' : 'archiver'})\n"
-     "    })",
-     "archiver / restaurer"),
-    # en local le favori est un fichier a part ; en ligne c'est une colonne de
-    # la fiche, donc la meme fonction que les changements de statut
-    (r"fetch\('/api/favori', \{\s*"
-     r"method:'POST', headers:\{'Content-Type':'application/json'\},\s*"
-     r"body: JSON\.stringify\(\{nom: fav\.dataset\.favori, favori: fav\.dataset\.aimee !== '1'\}\)\s*\}\)",
-     "fetch('/api/action', {\n"
-     "      method:'POST', headers:{'Content-Type':'application/json'},\n"
-     "      body: JSON.stringify({nom: fav.dataset.favori,\n"
-     "                            action: fav.dataset.aimee === '1' ? 'defavori' : 'favori'})\n"
-     "    })",
-     "favori"),
-    (r"fetch\('/api/supprimer', \{\s*"
-     r"method:'POST', headers:\{'Content-Type':'application/json'\},\s*"
-     r"body: JSON\.stringify\(\{nom: sup\.dataset\.supprime\}\)\s*\}\)",
-     "fetch('/api/action', {\n"
-     "      method:'POST', headers:{'Content-Type':'application/json'},\n"
-     "      body: JSON.stringify({nom: sup.dataset.supprime, action: 'supprimer'})\n"
-     "    })",
-     "suppression"),
     (r"Les 5 photos partent dans gen/_corbeille, tu peux encore les récupérer à la main\.",
      "Le carrousel passe en corbeille : il disparaît des deux onglets mais les photos restent en ligne.",
      "message de confirmation"),
@@ -113,12 +87,30 @@ def transformer(html):
         '<span class="sortir-court">Sortir</span></button>',
         "bouton de deconnexion")
 
-    # une session expiree renvoie 401 : on repasse par la page de connexion
+    # Actions sur une fiche : en local une route par action, en ligne une seule
+    # fonction (le plan Hobby plafonne a douze) ; le favori, fichier a part en
+    # local, y est une colonne de la fiche comme le statut.
     html = remplacer(
         html,
-        "    const r = await fetch('/api/librairie' + REQUETE[ONGLET]);\n",
-        "    const r = await fetch('/api/librairie' + REQUETE[ONGLET]);\n"
-        "    if(r.status === 401){ location.reload(); return; }\n",
+        "function envoyerAction(nom, quoi){\n"
+        "  const route = {supprimer:'/api/supprimer', archiver:'/api/archiver', restaurer:'/api/restaurer',\n"
+        "                 favori:'/api/favori', defavori:'/api/favori'}[quoi];\n"
+        "  return fetch(route, {method:'POST', headers:{'Content-Type':'application/json'},\n"
+        "                       body: JSON.stringify({nom, favori: quoi === 'favori'})});\n"
+        "}\n",
+        "function envoyerAction(nom, quoi){\n"
+        "  return fetch('/api/action', {method:'POST', headers:{'Content-Type':'application/json'},\n"
+        "                               body: JSON.stringify({nom, action: quoi})});\n"
+        "}\n",
+        "actions sur une fiche")
+
+    # Une session expiree renvoie 401 : on repasse par la page de connexion, et
+    # la promesse qui ne se resout jamais arrete tout le reste pendant ce temps.
+    html = remplacer(
+        html,
+        "  const r = await fetch('/api/librairie' + REQUETE[quel]);\n",
+        "  const r = await fetch('/api/librairie' + REQUETE[quel]);\n"
+        "  if(r.status === 401){ location.reload(); return new Promise(() => {}); }\n",
         "session expiree")
 
     # web/app.html se lit comme une source : on previent qu'il n'en est pas une.
